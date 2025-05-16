@@ -179,7 +179,7 @@ fn test_experiment_with_5_items() {
     println!("Comparisons | Kendall's Tau | Spearman's Rho | Time (s)");
     println!("---------------------------------------------------------");
     
-    for (n_comparisons, kendall, spearman, time) in results {
+    for (n_comparisons, kendall, spearman, time) in &results {
         println!("{:11} | {:12.4} | {:13.4} | {:8.4}", 
                  n_comparisons, kendall, spearman, time);
     }
@@ -201,7 +201,7 @@ fn test_experiment_with_50_items() {
     println!("Comparisons | Kendall's Tau | Spearman's Rho | Time (s)");
     println!("---------------------------------------------------------");
     
-    for (n_comparisons, kendall, spearman, time) in results {
+    for (n_comparisons, kendall, spearman, time) in &results {
         println!("{:11} | {:12.4} | {:13.4} | {:8.4}", 
                  n_comparisons, kendall, spearman, time);
     }
@@ -223,7 +223,7 @@ fn test_experiment_with_200_items() {
     println!("Comparisons | Kendall's Tau | Spearman's Rho | Time (s)");
     println!("---------------------------------------------------------");
     
-    for (n_comparisons, kendall, spearman, time) in results {
+    for (n_comparisons, kendall, spearman, time) in &results {
         println!("{:11} | {:12.4} | {:13.4} | {:8.4}", 
                  n_comparisons, kendall, spearman, time);
     }
