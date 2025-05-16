@@ -1,28 +1,27 @@
 use statrs::distribution::ContinuousCDF;
 use std::collections::HashMap;
-use std::fmt;
+use std::fmt::{self, Debug, Display};
+use std::hash::Hash;
 use thiserror::Error;
 
-pub type ItemId = String;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Comparison {
-    pub winner: ItemId,
-    pub loser: ItemId,
+pub struct Comparison<T: Display> {
+    pub winner: T,
+    pub loser: T,
 }
 
-impl fmt::Display for Comparison {
+impl<T: Display> fmt::Display for Comparison<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} > {}", self.winner, self.loser)
     }
 }
 
 #[derive(Error, Debug)]
-pub enum AsapError {
+pub enum AsapError<T: Display + Debug> {
     #[error("Item not found: {0}")]
-    ItemNotFound(ItemId),
+    ItemNotFound(T),
     #[error("Item already exists: {0}")]
-    ItemAlreadyExists(ItemId),
+    ItemAlreadyExists(T),
     #[error("Invalid comparison: both items are the same")]
     InvalidComparison,
     #[error("Not enough comparisons to compute scores")]
@@ -35,15 +34,19 @@ pub enum AsapError {
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ComparisonMatrix {
-    item_indices: HashMap<ItemId, usize>,
-    index_to_item: Vec<ItemId>,
+#[cfg_attr(feature = "serde", serde(bound(
+    serialize = "T: Clone + Debug + Eq + Hash + Send + Sync + 'static + serde::Serialize",
+    deserialize = "T: Clone + Debug + Eq + Hash + Send + Sync + 'static + serde::de::DeserializeOwned"
+)))]
+pub struct ComparisonMatrix<T: Clone + Debug + Eq + Hash + Send + Sync + 'static> {
+    item_indices: HashMap<T, usize>,
+    index_to_item: Vec<T>,
     win_counts: Vec<Vec<usize>>,
     comparison_count: usize,
 }
 
-impl ComparisonMatrix {
-    pub fn new(items: &[ItemId]) -> Self {
+impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> ComparisonMatrix<T> {
+    pub fn new(items: &[T]) -> Self {
         let n = items.len();
         let mut item_indices = HashMap::with_capacity(n);
         let mut index_to_item = Vec::with_capacity(n);
@@ -63,7 +66,7 @@ impl ComparisonMatrix {
         }
     }
 
-    pub fn add_comparison(&mut self, comparison: &Comparison) -> Result<(), AsapError> {
+    pub fn add_comparison(&mut self, comparison: &Comparison<T>) -> Result<(), AsapError<T>> {
         if comparison.winner == comparison.loser {
             return Err(AsapError::InvalidComparison);
         }
@@ -83,7 +86,7 @@ impl ComparisonMatrix {
         Ok(())
     }
 
-    pub fn get_win_count(&self, item_i: &ItemId, item_j: &ItemId) -> Result<usize, AsapError> {
+    pub fn get_win_count(&self, item_i: &T, item_j: &T) -> Result<usize, AsapError<T>> {
         let i_idx = self
             .item_indices
             .get(item_i)
@@ -98,9 +101,9 @@ impl ComparisonMatrix {
 
     pub fn get_comparison_count(
         &self,
-        item_i: &ItemId,
-        item_j: &ItemId,
-    ) -> Result<usize, AsapError> {
+        item_i: &T,
+        item_j: &T,
+    ) -> Result<usize, AsapError<T>> {
         let i_idx = self
             .item_indices
             .get(item_i)
@@ -121,22 +124,22 @@ impl ComparisonMatrix {
         self.comparison_count
     }
 
-    pub fn items(&self) -> Vec<ItemId> {
+    pub fn items(&self) -> Vec<T> {
         self.index_to_item.clone()
     }
 
-    pub fn get_item_index(&self, item: &ItemId) -> Result<usize, AsapError> {
+    pub fn get_item_index(&self, item: &T) -> Result<usize, AsapError<T>> {
         self.item_indices
             .get(item)
             .copied()
             .ok_or_else(|| AsapError::ItemNotFound(item.clone()))
     }
 
-    pub fn get_item_from_index(&self, index: usize) -> Option<ItemId> {
+    pub fn get_item_from_index(&self, index: usize) -> Option<T> {
         self.index_to_item.get(index).cloned()
     }
 
-    pub fn add_item(&mut self, item: ItemId) -> Result<(), AsapError> {
+    pub fn add_item(&mut self, item: T) -> Result<(), AsapError<T>> {
         if self.item_indices.contains_key(&item) {
             return Err(AsapError::ItemAlreadyExists(item));
         }
@@ -157,16 +160,20 @@ impl ComparisonMatrix {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct RankingModel {
-    pub data: ComparisonMatrix,
-    pub scores: Option<HashMap<ItemId, f64>>,
+#[cfg_attr(feature = "serde", serde(bound(
+    serialize = "T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static + serde::Serialize",
+    deserialize = "T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static + serde::de::DeserializeOwned"
+)))]
+pub struct RankingModel<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> {
+    pub data: ComparisonMatrix<T>,
+    pub scores: Option<HashMap<T, f64>>,
     approximate: bool,
     #[allow(dead_code)]
     selective_eig: bool,
 }
 
-impl RankingModel {
-    pub fn new(items: &[ItemId]) -> Self {
+impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingModel<T> {
+    pub fn new(items: &[T]) -> Self {
         RankingModel {
             data: ComparisonMatrix::new(items),
             scores: None,
@@ -175,7 +182,7 @@ impl RankingModel {
         }
     }
 
-    pub fn new_with_options(items: &[ItemId], approximate: bool, selective_eig: bool) -> Self {
+    pub fn new_with_options(items: &[T], approximate: bool, selective_eig: bool) -> Self {
         RankingModel {
             data: ComparisonMatrix::new(items),
             scores: None,
@@ -184,19 +191,19 @@ impl RankingModel {
         }
     }
 
-    pub fn add_comparison(&mut self, comparison: Comparison) -> Result<(), AsapError> {
+    pub fn add_comparison(&mut self, comparison: Comparison<T>) -> Result<(), AsapError<T>> {
         self.data.add_comparison(&comparison)?;
         self.scores = None;
         Ok(())
     }
 
-    pub fn add_item(&mut self, item: ItemId) -> Result<(), AsapError> {
+    pub fn add_item(&mut self, item: T) -> Result<(), AsapError<T>> {
         self.data.add_item(item)?;
         self.scores = None;
         Ok(())
     }
 
-    pub fn get_ordering(&mut self) -> Result<Vec<ItemId>, AsapError> {
+    pub fn get_ordering(&mut self) -> Result<Vec<T>, AsapError<T>> {
         let scores = self.get_scores()?;
 
         let mut items_with_scores: Vec<_> = scores.iter().collect();
@@ -209,7 +216,7 @@ impl RankingModel {
             .collect())
     }
 
-    pub fn get_scores(&mut self) -> Result<HashMap<ItemId, f64>, AsapError> {
+    pub fn get_scores(&mut self) -> Result<HashMap<T, f64>, AsapError<T>> {
         if let Some(ref scores) = self.scores {
             return Ok(scores.clone());
         }
@@ -224,7 +231,7 @@ impl RankingModel {
         Ok(scores)
     }
 
-    pub fn suggest_comparisons(&self, max: usize) -> Result<Vec<(ItemId, ItemId)>, AsapError> {
+    pub fn suggest_comparisons(&self, max: usize) -> Result<Vec<(T, T)>, AsapError<T>> {
         if self.data.item_count() < 2 {
             return Err(AsapError::NotEnoughComparisons);
         }
@@ -233,49 +240,41 @@ impl RankingModel {
         let items = self.data.items();
         let n = items.len();
 
-        let scores = if let Some(ref scores) = self.scores {
-            scores.clone()
-        } else {
-            let mut temp_scores = HashMap::new();
-            for i in 0..n {
-                let item_i = self
-                    .data
-                    .get_item_from_index(i)
-                    .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
-
-                let mut wins = 0;
-                let mut total = 0;
-
-                for j in 0..n {
-                    if i == j {
-                        continue;
+        let current_scores = match self.scores {
+            Some(ref s) => s.clone(),
+            None => {
+                // Calculate temporary scores if not available (e.g., simple win ratio)
+                // This part might need a mutable self to call get_scores, or a non-mutating score estimation
+                // For now, let's assume if scores are None, we compute them temporarily or use a default.
+                // A proper solution might involve ensuring scores are computed or using a lightweight estimation.
+                // The original code used a simple win ratio if scores were not present.
+                let mut temp_scores = HashMap::new();
+                for i_idx in 0..n {
+                    let item_i = self.data.get_item_from_index(i_idx)
+                        .ok_or_else(|| AsapError::InternalError("Invalid item index in suggest_comparisons".to_string()))?;
+                    let mut wins = 0;
+                    let mut total_comps = 0;
+                    for j_idx in 0..n {
+                        if i_idx == j_idx { continue; }
+                        let item_j = self.data.get_item_from_index(j_idx)
+                            .ok_or_else(|| AsapError::InternalError("Invalid item index in suggest_comparisons".to_string()))?;
+                        wins += self.data.get_win_count(&item_i, &item_j)?;
+                        total_comps += self.data.get_comparison_count(&item_i, &item_j)?;
                     }
-
-                    let item_j = self.data.get_item_from_index(j).ok_or_else(|| {
-                        AsapError::InternalError("Invalid item index".to_string())
-                    })?;
-
-                    wins += self.data.get_win_count(&item_i, &item_j)?;
-                    total += self.data.get_comparison_count(&item_i, &item_j)?;
+                    temp_scores.insert(item_i.clone(), if total_comps > 0 { wins as f64 / total_comps as f64 } else { 0.5 });
                 }
-
-                let score = if total > 0 {
-                    wins as f64 / total as f64
-                } else {
-                    0.5
-                };
-                temp_scores.insert(item_i, score);
+                temp_scores
             }
-            temp_scores
         };
+
 
         for i in 0..n {
             for j in (i + 1)..n {
                 let item_i = &items[i];
                 let item_j = &items[j];
 
-                let score_i = *scores.get(item_i).unwrap_or(&0.5);
-                let score_j = *scores.get(item_j).unwrap_or(&0.5);
+                let score_i = *current_scores.get(item_i).unwrap_or(&0.5);
+                let score_j = *current_scores.get(item_j).unwrap_or(&0.5);
 
                 let prob_i_wins = 1.0 / (1.0 + (-10.0 * (score_i - score_j)).exp());
 
@@ -300,25 +299,29 @@ impl RankingModel {
         Ok(result)
     }
 
-    pub fn ranking_confidence(&self) -> Result<f64, AsapError> {
+    pub fn ranking_confidence(&self) -> Result<f64, AsapError<T>> {
         let n = self.data.item_count();
         if n <= 1 {
             return Ok(1.0); // Only one item, so we're 100% confident
         }
 
-        let scores = if let Some(ref scores) = self.scores {
-            scores.clone()
-        } else {
-            let max_comparisons = (n * (n - 1)) / 2;
-            let confidence = (self.data.total_comparisons() as f64) / (max_comparisons as f64);
-            return Ok(1.0 / (1.0 + (-5.0 * (confidence - 0.5)).exp()));
+        let current_scores = match self.scores {
+            Some(ref s) => s.clone(),
+             None => {
+                // If scores are not computed, confidence might be based purely on comparison count
+                let max_comparisons_possible = (n * (n - 1)) / 2;
+                if max_comparisons_possible == 0 { return Ok(0.0); } // Avoid division by zero if n=0 or n=1 (already handled)
+                let confidence_from_count = (self.data.total_comparisons() as f64) / (max_comparisons_possible as f64);
+                // Sigmoid scaling for confidence
+                return Ok(1.0 / (1.0 + (-5.0 * (confidence_from_count - 0.5)).exp()));
+            }
         };
 
         let mut score_vec = Vec::with_capacity(n);
         let items = self.data.items();
 
         for item in &items {
-            score_vec.push(*scores.get(item).unwrap_or(&0.5));
+            score_vec.push(*current_scores.get(item).unwrap_or(&0.5));
         }
 
         let mut sorted_scores = score_vec.clone();
@@ -334,7 +337,7 @@ impl RankingModel {
         }
 
         if count == 0 {
-            return Ok(0.5); // Default confidence if no differences
+            return Ok(0.5); // Default confidence if no differences (e.g. all scores are same)
         }
 
         avg_diff /= count as f64;
@@ -359,12 +362,12 @@ impl RankingModel {
         Ok(confidence)
     }
 
-    pub fn is_sufficiently_confident(&self, threshold: f64) -> Result<bool, AsapError> {
+    pub fn is_sufficiently_confident(&self, threshold: f64) -> Result<bool, AsapError<T>> {
         let confidence = self.ranking_confidence()?;
         Ok(confidence >= threshold)
     }
 
-    fn compute_accurate_scores(&self) -> Result<HashMap<ItemId, f64>, AsapError> {
+    fn compute_accurate_scores(&self) -> Result<HashMap<T, f64>, AsapError<T>> {
         use nalgebra::DVector;
         use statrs::distribution::{Continuous, Normal};
 
@@ -379,7 +382,7 @@ impl RankingModel {
         let mut sigma = DVector::from_element(n, 1.0);
 
         let beta = 0.1f64; // Skill variability
-        let _tau = 0.05f64; // Dynamic factor
+        let _tau = 0.05f64; // Dynamic factor (original paper, seems unused here in updates)
 
         for i in 0..n {
             for j in 0..n {
@@ -407,15 +410,17 @@ impl RankingModel {
                     let v = (2.0 * beta * beta + sigma[i] * sigma[i] + sigma[j] * sigma[j]).sqrt();
                     let mean_diff = mu[i] - mu[j];
 
-                    let normal = Normal::new(0.0, 1.0).unwrap();
-                    let c = v * normal.pdf(mean_diff / v) / normal.cdf(mean_diff / v);
+                    let normal = Normal::new(0.0, 1.0).unwrap(); // Should handle potential error
+                    let cdf_val = normal.cdf(mean_diff / v);
+                    if cdf_val == 0.0 { continue; } // Avoid division by zero if cdf is 0
+                    let c = v * normal.pdf(mean_diff / v) / cdf_val;
+
 
                     mu[i] += sigma[i] * sigma[i] * c / v;
                     mu[j] -= sigma[j] * sigma[j] * c / v;
 
-                    let factor: f64 = 1.0
-                        - sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v)
-                            / (v * v);
+                    let factor_val = sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v) / (v * v);
+                    let factor: f64 = (1.0 - factor_val).max(0.0); // Ensure factor is non-negative for sqrt
                     sigma[i] *= factor.sqrt();
                     sigma[j] *= factor.sqrt();
                 }
@@ -424,15 +429,16 @@ impl RankingModel {
                     let v = (2.0 * beta * beta + sigma[i] * sigma[i] + sigma[j] * sigma[j]).sqrt();
                     let mean_diff = mu[j] - mu[i];
 
-                    let normal = Normal::new(0.0, 1.0).unwrap();
-                    let c = v * normal.pdf(mean_diff / v) / normal.cdf(mean_diff / v);
+                    let normal = Normal::new(0.0, 1.0).unwrap(); // Should handle potential error
+                    let cdf_val = normal.cdf(mean_diff / v);
+                    if cdf_val == 0.0 { continue; } // Avoid division by zero
+                    let c = v * normal.pdf(mean_diff / v) / cdf_val;
 
                     mu[j] += sigma[j] * sigma[j] * c / v;
                     mu[i] -= sigma[i] * sigma[i] * c / v;
 
-                    let factor: f64 = 1.0
-                        - sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v)
-                            / (v * v);
+                    let factor_val = sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v) / (v * v);
+                    let factor: f64 = (1.0 - factor_val).max(0.0); // Ensure factor is non-negative
                     sigma[i] *= factor.sqrt();
                     sigma[j] *= factor.sqrt();
                 }
@@ -444,13 +450,13 @@ impl RankingModel {
                 .data
                 .get_item_from_index(i)
                 .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
-            scores.insert(item, mu[i]);
+            scores.insert(item.clone(), mu[i]);
         }
 
         Ok(scores)
     }
 
-    fn compute_approximate_scores(&self) -> Result<HashMap<ItemId, f64>, AsapError> {
+    fn compute_approximate_scores(&self) -> Result<HashMap<T, f64>, AsapError<T>> {
         use nalgebra::DVector;
         use rand::prelude::*;
         use statrs::distribution::{Continuous, Normal};
@@ -466,36 +472,36 @@ impl RankingModel {
         let mut sigma = DVector::from_element(n, 1.0);
 
         let beta = 0.1f64; // Skill variability
-        let _tau = 0.05f64; // Dynamic factor
+        let tau_sq = 0.05f64 * 0.05f64; // Dynamic factor squared
 
-        let mut all_comparisons = Vec::new();
+        let mut all_comparisons_indices = Vec::new();
         for i in 0..n {
             for j in 0..n {
                 if i == j {
                     continue;
                 }
 
-                let item_i = self
+                let item_i_ref = self
                     .data
                     .get_item_from_index(i)
                     .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
-                let item_j = self
+                let item_j_ref = self
                     .data
                     .get_item_from_index(j)
                     .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
 
-                let wins_i_over_j = self.data.get_win_count(&item_i, &item_j)?;
+                let wins_i_over_j = self.data.get_win_count(&item_i_ref, &item_j_ref)?;
 
                 for _ in 0..wins_i_over_j {
-                    all_comparisons.push((i, j));
+                    all_comparisons_indices.push((i, j)); // Store indices
                 }
             }
         }
 
         let mut rng = rand::thread_rng();
-        all_comparisons.shuffle(&mut rng);
+        all_comparisons_indices.shuffle(&mut rng);
 
-        for (winner_idx, loser_idx) in all_comparisons {
+        for (winner_idx, loser_idx) in all_comparisons_indices {
             let v = (2.0 * beta * beta
                 + sigma[winner_idx] * sigma[winner_idx]
                 + sigma[loser_idx] * sigma[loser_idx])
@@ -503,27 +509,19 @@ impl RankingModel {
 
             let mean_diff = mu[winner_idx] - mu[loser_idx];
 
-            let normal = Normal::new(0.0, 1.0).unwrap();
-            let c = v * normal.pdf(mean_diff / v) / normal.cdf(mean_diff / v);
+            let normal = Normal::new(0.0, 1.0).unwrap(); // Should handle error
+            let cdf_val = normal.cdf(mean_diff / v);
+            if cdf_val == 0.0 { continue; } // Avoid division by zero
+            let c = v * normal.pdf(mean_diff / v) / cdf_val;
 
             mu[winner_idx] += sigma[winner_idx] * sigma[winner_idx] * c / v;
             mu[loser_idx] -= sigma[loser_idx] * sigma[loser_idx] * c / v;
+            
+            let factor_val = sigma[winner_idx] * sigma[winner_idx] * sigma[loser_idx] * sigma[loser_idx] * c * (c + mean_diff / v) / (v*v);
+            let factor = (1.0 - factor_val).max(0.0); // Ensure non-negative
 
-            let factor: f64 = 1.0
-                - sigma[winner_idx]
-                    * sigma[winner_idx]
-                    * sigma[loser_idx]
-                    * sigma[loser_idx]
-                    * c
-                    * (c + mean_diff / v)
-                    / (v * v);
-            sigma[winner_idx] *= factor.sqrt();
-            sigma[loser_idx] *= factor.sqrt();
-
-            let winner_var: f64 = sigma[winner_idx] * sigma[winner_idx] + _tau * _tau;
-            let loser_var: f64 = sigma[loser_idx] * sigma[loser_idx] + _tau * _tau;
-            sigma[winner_idx] = winner_var.sqrt();
-            sigma[loser_idx] = loser_var.sqrt();
+            sigma[winner_idx] = (sigma[winner_idx] * sigma[winner_idx] * factor + tau_sq).sqrt();
+            sigma[loser_idx] = (sigma[loser_idx] * sigma[loser_idx] * factor + tau_sq).sqrt();
         }
 
         for i in 0..n {
@@ -531,34 +529,50 @@ impl RankingModel {
                 .data
                 .get_item_from_index(i)
                 .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
-            scores.insert(item, mu[i]);
+            scores.insert(item.clone(), mu[i]);
         }
 
         Ok(scores)
     }
+}
 
-    pub fn to_json(&self) -> Result<String, AsapError> {
+#[cfg(feature = "serde")]
+impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned> RankingModel<T> {
+    pub fn to_json(&self) -> Result<String, AsapError<T>> {
         serde_json::to_string(self)
             .map_err(|e| AsapError::SerializationError(format!("Failed to serialize: {}", e)))
     }
 
-    pub fn from_json(json: &str) -> Result<Self, AsapError> {
+    pub fn from_json(json: &str) -> Result<Self, AsapError<T>> {
         serde_json::from_str(json)
             .map_err(|e| AsapError::SerializationError(format!("Failed to deserialize: {}", e)))
     }
 
-    pub fn save_to_file(&self, path: &str) -> Result<(), AsapError> {
+    pub fn save_to_file(&self, path: &str) -> Result<(), AsapError<T>> {
         let json = self.to_json()?;
         std::fs::write(path, json)
             .map_err(|e| AsapError::SerializationError(format!("Failed to write file: {}", e)))
     }
 
-    pub fn load_from_file(path: &str) -> Result<Self, AsapError> {
+    pub fn load_from_file(path: &str) -> Result<Self, AsapError<T>> {
         let json = std::fs::read_to_string(path)
             .map_err(|e| AsapError::SerializationError(format!("Failed to read file: {}", e)))?;
         Self::from_json(&json)
     }
 }
+
+#[cfg(not(feature = "serde"))]
+impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingModel<T> {
+    // Define stubs or error-out for non-serde builds if these methods are called.
+    // Or, conditionally compile these methods only when "serde" feature is enabled.
+    // For now, these methods will only be available if "serde" is on, as per the cfg above.
+    // If to_json etc. must exist always, they should return an error when serde is off.
+    // Example stub (would require AsapError to be non-generic or handle this):
+    // pub fn to_json(&self) -> Result<String, AsapError<T>> {
+    //     Err(AsapError::SerializationError("Serde feature not enabled".to_string()))
+    // }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -567,7 +581,7 @@ mod tests {
     #[test]
     fn test_comparison_matrix_new() {
         let items = vec!["A".to_string(), "B".to_string(), "C".to_string()];
-        let matrix = ComparisonMatrix::new(&items);
+        let matrix = ComparisonMatrix::<String>::new(&items);
 
         assert_eq!(matrix.item_count(), 3);
         assert_eq!(matrix.total_comparisons(), 0);
@@ -576,7 +590,7 @@ mod tests {
     #[test]
     fn test_add_comparison() {
         let items = vec!["A".to_string(), "B".to_string(), "C".to_string()];
-        let mut matrix = ComparisonMatrix::new(&items);
+        let mut matrix = ComparisonMatrix::<String>::new(&items);
 
         let comparison = Comparison {
             winner: "A".to_string(),
@@ -603,7 +617,7 @@ mod tests {
     #[test]
     fn test_comparison_matrix_add_item() {
         let items = vec!["A".to_string(), "B".to_string()];
-        let mut matrix = ComparisonMatrix::new(&items);
+        let mut matrix = ComparisonMatrix::<String>::new(&items);
 
         matrix.add_item("C".to_string()).unwrap();
 
@@ -641,7 +655,7 @@ mod tests {
     #[test]
     fn test_ranking_model_new() {
         let items = vec!["A".to_string(), "B".to_string(), "C".to_string()];
-        let model = RankingModel::new(&items);
+        let model = RankingModel::<String>::new(&items);
 
         assert_eq!(model.data.item_count(), 3);
         assert!(model.scores.is_none());
@@ -650,7 +664,7 @@ mod tests {
     #[test]
     fn test_ranking_model_add_comparison() {
         let items = vec!["A".to_string(), "B".to_string(), "C".to_string()];
-        let mut model = RankingModel::new(&items);
+        let mut model = RankingModel::<String>::new(&items);
 
         let comparison = Comparison {
             winner: "A".to_string(),
@@ -666,7 +680,7 @@ mod tests {
     #[test]
     fn test_ranking_model_add_item() {
         let items = vec!["A".to_string(), "B".to_string()];
-        let mut model = RankingModel::new(&items);
+        let mut model = RankingModel::<String>::new(&items);
 
         model
             .add_comparison(Comparison {
@@ -708,9 +722,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn test_serialization_deserialization() {
         let items = vec!["A".to_string(), "B".to_string(), "C".to_string()];
-        let mut model = RankingModel::new(&items);
+        let mut model = RankingModel::<String>::new(&items);
 
         model
             .add_comparison(Comparison {
@@ -735,7 +750,7 @@ mod tests {
 
         let json = model.to_json().unwrap();
 
-        let mut deserialized_model = RankingModel::from_json(&json).unwrap();
+        let mut deserialized_model = RankingModel::<String>::from_json(&json).unwrap();
 
         assert_eq!(
             deserialized_model.data.item_count(),
