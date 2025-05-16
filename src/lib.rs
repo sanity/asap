@@ -120,6 +120,7 @@ pub struct RankingModel {
     pub data: ComparisonMatrix,
     pub scores: Option<HashMap<ItemId, f64>>,
     approximate: bool,
+    #[allow(dead_code)]
     selective_eig: bool,
 }
 
@@ -321,7 +322,7 @@ impl RankingModel {
         let mut sigma = DVector::from_element(n, 1.0);
         
         let beta = 0.1f64; // Skill variability
-        let tau = 0.05f64; // Dynamic factor
+        let _tau = 0.05f64; // Dynamic factor
         
         for i in 0..n {
             for j in 0..n {
@@ -348,12 +349,12 @@ impl RankingModel {
                     let normal = Normal::new(0.0, 1.0).unwrap();
                     let c = v * normal.pdf(mean_diff / v) / normal.cdf(mean_diff / v);
                     
-                    mu[i] = mu[i] + sigma[i] * sigma[i] * c / v;
-                    mu[j] = mu[j] - sigma[j] * sigma[j] * c / v;
+                    mu[i] += sigma[i] * sigma[i] * c / v;
+                    mu[j] -= sigma[j] * sigma[j] * c / v;
                     
                     let factor: f64 = 1.0 - sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v) / (v * v);
-                    sigma[i] = sigma[i] * factor.sqrt();
-                    sigma[j] = sigma[j] * factor.sqrt();
+                    sigma[i] *= factor.sqrt();
+                    sigma[j] *= factor.sqrt();
                 }
                 
                 for _ in 0..wins_j_over_i {
@@ -363,12 +364,12 @@ impl RankingModel {
                     let normal = Normal::new(0.0, 1.0).unwrap();
                     let c = v * normal.pdf(mean_diff / v) / normal.cdf(mean_diff / v);
                     
-                    mu[j] = mu[j] + sigma[j] * sigma[j] * c / v;
-                    mu[i] = mu[i] - sigma[i] * sigma[i] * c / v;
+                    mu[j] += sigma[j] * sigma[j] * c / v;
+                    mu[i] -= sigma[i] * sigma[i] * c / v;
                     
                     let factor: f64 = 1.0 - sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v) / (v * v);
-                    sigma[i] = sigma[i] * factor.sqrt();
-                    sigma[j] = sigma[j] * factor.sqrt();
+                    sigma[i] *= factor.sqrt();
+                    sigma[j] *= factor.sqrt();
                 }
             }
         }
@@ -398,7 +399,7 @@ impl RankingModel {
         let mut sigma = DVector::from_element(n, 1.0);
         
         let beta = 0.1f64; // Skill variability
-        let tau = 0.05f64; // Dynamic factor
+        let _tau = 0.05f64; // Dynamic factor
         
         let mut all_comparisons = Vec::new();
         for i in 0..n {
@@ -431,15 +432,15 @@ impl RankingModel {
             let normal = Normal::new(0.0, 1.0).unwrap();
             let c = v * normal.pdf(mean_diff / v) / normal.cdf(mean_diff / v);
             
-            mu[winner_idx] = mu[winner_idx] + sigma[winner_idx] * sigma[winner_idx] * c / v;
-            mu[loser_idx] = mu[loser_idx] - sigma[loser_idx] * sigma[loser_idx] * c / v;
+            mu[winner_idx] += sigma[winner_idx] * sigma[winner_idx] * c / v;
+            mu[loser_idx] -= sigma[loser_idx] * sigma[loser_idx] * c / v;
             
             let factor: f64 = 1.0 - sigma[winner_idx] * sigma[winner_idx] * sigma[loser_idx] * sigma[loser_idx] * c * (c + mean_diff / v) / (v * v);
-            sigma[winner_idx] = sigma[winner_idx] * factor.sqrt();
-            sigma[loser_idx] = sigma[loser_idx] * factor.sqrt();
+            sigma[winner_idx] *= factor.sqrt();
+            sigma[loser_idx] *= factor.sqrt();
             
-            let winner_var: f64 = sigma[winner_idx] * sigma[winner_idx] + tau * tau;
-            let loser_var: f64 = sigma[loser_idx] * sigma[loser_idx] + tau * tau;
+            let winner_var: f64 = sigma[winner_idx] * sigma[winner_idx] + _tau * _tau;
+            let loser_var: f64 = sigma[loser_idx] * sigma[loser_idx] + _tau * _tau;
             sigma[winner_idx] = winner_var.sqrt();
             sigma[loser_idx] = loser_var.sqrt();
         }
