@@ -79,6 +79,7 @@ Run the tests with:
 cargo test
 ```
 
-## Ownership
+## License
 
-(c) Copyright 2025 Ian Clarke, All Rights Reserved
+Released under the [GNU Affero General Public License](https://www.gnu.org/licenses/agpl-3.0.en.html) 
+(c) Copyright 2025 Ian Clarke
