@@ -34,7 +34,7 @@ fn generate_synthetic_data(
         let score1 = true_scores.get(item1).unwrap();
         let score2 = true_scores.get(item2).unwrap();
 
-        let prob_item1_wins = 1.0 / (1.0 + (-10.0 * (score1 - score2)).exp());
+        let prob_item1_wins = 1.0 / (1.0 + (-10.0f64 * (score1 - score2)).exp());
         let noise = rng.gen_range(0.0..1.0) < noise_level;
 
         let item1_wins = if noise {
