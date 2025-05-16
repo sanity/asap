@@ -302,7 +302,7 @@ fn test_comparison_suggestion() {
 #[test]
 fn test_ranking_confidence() {
     let n_items = 5;
-    let seed = 42;
+    let _seed = 42;
 
     let items: Vec<String> = (0..n_items).map(|i| format!("item_{}", i)).collect();
 
@@ -378,7 +378,7 @@ fn test_add_item_and_serialization() {
         })
         .unwrap();
 
-    let scores_before_serialization = model.get_scores().unwrap();
+    let _scores_before_serialization = model.get_scores().unwrap();
     assert_eq!(model.data.item_count(), 3);
 
     // Test removing an item before serialization
