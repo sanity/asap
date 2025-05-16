@@ -67,13 +67,33 @@ fn kendall_tau(a: &[f64], b: &[f64]) -> f64 {
     assert_eq!(a.len(), b.len());
     
     let n = a.len();
+    if n <= 1 {
+        return 1.0; // Perfect correlation for 0 or 1 item
+    }
+    
     let mut concordant = 0;
     let mut discordant = 0;
     
     for i in 0..n {
         for j in (i+1)..n {
-            let a_order = a[i].partial_cmp(&a[j]).unwrap();
-            let b_order = b[i].partial_cmp(&b[j]).unwrap();
+            let a_i = a[i];
+            let a_j = a[j];
+            let b_i = b[i];
+            let b_j = b[j];
+            
+            if a_i.is_nan() || a_j.is_nan() || b_i.is_nan() || b_j.is_nan() {
+                continue; // Skip NaN comparisons
+            }
+            
+            let a_order = match a_i.partial_cmp(&a_j) {
+                Some(order) => order,
+                None => continue, // Skip incomparable values
+            };
+            
+            let b_order = match b_i.partial_cmp(&b_j) {
+                Some(order) => order,
+                None => continue, // Skip incomparable values
+            };
             
             if a_order == b_order {
                 concordant += 1;
@@ -83,7 +103,11 @@ fn kendall_tau(a: &[f64], b: &[f64]) -> f64 {
         }
     }
     
-    let total_pairs = (n * (n - 1)) / 2;
+    let total_pairs = concordant + discordant;
+    if total_pairs == 0 {
+        return 0.0; // No valid comparisons
+    }
+    
     (concordant as f64 - discordant as f64) / (total_pairs as f64)
 }
 
@@ -91,39 +115,62 @@ fn spearman_correlation(a: &[f64], b: &[f64]) -> f64 {
     assert_eq!(a.len(), b.len());
     
     let n = a.len();
+    if n <= 1 {
+        return 1.0; // Perfect correlation for 0 or 1 item
+    }
     
-    let mut a_ranks = Vec::with_capacity(n);
-    let mut b_ranks = Vec::with_capacity(n);
-    
+    let mut valid_indices = Vec::new();
     for i in 0..n {
+        if !a[i].is_nan() && !b[i].is_nan() {
+            valid_indices.push(i);
+        }
+    }
+    
+    let valid_n = valid_indices.len();
+    if valid_n <= 1 {
+        return 1.0; // Perfect correlation for 0 or 1 valid item
+    }
+    
+    let mut a_ranks = vec![0.0; valid_n];
+    let mut b_ranks = vec![0.0; valid_n];
+    
+    for (idx, &i) in valid_indices.iter().enumerate() {
         let mut a_rank = 1;
         let mut b_rank = 1;
         
-        for j in 0..n {
+        for &j in &valid_indices {
             if i == j {
                 continue;
             }
             
-            if a[j] < a[i] {
-                a_rank += 1;
+            if let Some(ordering) = a[j].partial_cmp(&a[i]) {
+                if ordering == std::cmp::Ordering::Less {
+                    a_rank += 1;
+                }
             }
             
-            if b[j] < b[i] {
-                b_rank += 1;
+            if let Some(ordering) = b[j].partial_cmp(&b[i]) {
+                if ordering == std::cmp::Ordering::Less {
+                    b_rank += 1;
+                }
             }
         }
         
-        a_ranks.push(a_rank as f64);
-        b_ranks.push(b_rank as f64);
+        a_ranks[idx] = a_rank as f64;
+        b_ranks[idx] = b_rank as f64;
     }
     
     let mut sum_d_squared = 0.0;
-    for i in 0..n {
+    for i in 0..valid_n {
         let d = a_ranks[i] - b_ranks[i];
         sum_d_squared += d * d;
     }
     
-    1.0 - (6.0 * sum_d_squared) / (n as f64 * ((n * n) - 1) as f64)
+    if valid_n < 2 {
+        return 0.0; // Cannot compute correlation with less than 2 valid items
+    }
+    
+    1.0 - (6.0 * sum_d_squared) / (valid_n as f64 * ((valid_n * valid_n) - 1) as f64)
 }
 
 fn run_experiment(n_items: usize, noise_level: f64, seed: u64) -> Vec<(usize, f64, f64, f64)> {
