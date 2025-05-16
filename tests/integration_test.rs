@@ -3,10 +3,7 @@ use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use std::collections::HashMap;
 
-fn generate_synthetic_data(
-    n_items: usize,
-    seed: u64,
-) -> (Vec<String>, HashMap<String, f64>) {
+fn generate_synthetic_data(n_items: usize, seed: u64) -> (Vec<String>, HashMap<String, f64>) {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
     let items: Vec<String> = (0..n_items).map(|i| format!("item_{}", i)).collect();
@@ -90,8 +87,7 @@ fn test_score_recovery_no_noise() {
     let noise_level = 0.0;
     let seed = 42;
 
-    let (items, true_scores) =
-        generate_synthetic_data(n_items, seed);
+    let (items, true_scores) = generate_synthetic_data(n_items, seed);
 
     let mut model = RankingModel::<String>::new(&items);
     let mut rng_comparisons = ChaCha8Rng::seed_from_u64(seed); // For simulating comparison outcomes
@@ -166,8 +162,7 @@ fn test_score_recovery_with_noise() {
     let noise_level = 0.2;
     let seed = 42;
 
-    let (items, true_scores) =
-        generate_synthetic_data(n_items, seed);
+    let (items, true_scores) = generate_synthetic_data(n_items, seed);
 
     let mut model = RankingModel::<String>::new(&items);
     let mut rng_comparisons = ChaCha8Rng::seed_from_u64(seed); // For simulating comparison outcomes
@@ -241,8 +236,7 @@ fn test_comparison_suggestion() {
     let noise_level = 0.0; // For simulating outcomes during model build-up
     let seed = 42;
 
-    let (items, true_scores) =
-        generate_synthetic_data(n_items, seed);
+    let (items, true_scores) = generate_synthetic_data(n_items, seed);
 
     let mut model = RankingModel::<String>::new(&items);
     let mut rng_comparisons = ChaCha8Rng::seed_from_u64(seed);
@@ -326,7 +320,9 @@ fn test_ranking_confidence() {
         let winner = format!("item_{}", i);
         let loser = format!("item_{}", (i + 1) % n_items);
 
-        model.add_comparison(Comparison::<String> { winner, loser }).unwrap();
+        model
+            .add_comparison(Comparison::<String> { winner, loser })
+            .unwrap();
     }
 
     let confidence2 = model.ranking_confidence().unwrap();

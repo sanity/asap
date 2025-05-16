@@ -34,10 +34,13 @@ pub enum AsapError<T: Display + Debug> {
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(
-    serialize = "T: Clone + Debug + Eq + Hash + Send + Sync + 'static + serde::Serialize",
-    deserialize = "T: Clone + Debug + Eq + Hash + Send + Sync + 'static + serde::de::DeserializeOwned"
-)))]
+#[cfg_attr(
+    feature = "serde",
+    serde(bound(
+        serialize = "T: Clone + Debug + Eq + Hash + Send + Sync + 'static + serde::Serialize",
+        deserialize = "T: Clone + Debug + Eq + Hash + Send + Sync + 'static + serde::de::DeserializeOwned"
+    ))
+)]
 pub struct ComparisonMatrix<T: Clone + Debug + Eq + Hash + Send + Sync + 'static> {
     item_indices: HashMap<T, usize>,
     index_to_item: Vec<T>,
@@ -99,11 +102,7 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> ComparisonM
         Ok(self.win_counts[*i_idx][*j_idx])
     }
 
-    pub fn get_comparison_count(
-        &self,
-        item_i: &T,
-        item_j: &T,
-    ) -> Result<usize, AsapError<T>> {
+    pub fn get_comparison_count(&self, item_i: &T, item_j: &T) -> Result<usize, AsapError<T>> {
         let i_idx = self
             .item_indices
             .get(item_i)
@@ -160,10 +159,13 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> ComparisonM
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(
-    serialize = "T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static + serde::Serialize",
-    deserialize = "T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static + serde::de::DeserializeOwned"
-)))]
+#[cfg_attr(
+    feature = "serde",
+    serde(bound(
+        serialize = "T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static + serde::Serialize",
+        deserialize = "T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static + serde::de::DeserializeOwned"
+    ))
+)]
 pub struct RankingModel<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> {
     pub data: ComparisonMatrix<T>,
     pub scores: Option<HashMap<T, f64>>,
@@ -250,23 +252,37 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
                 // The original code used a simple win ratio if scores were not present.
                 let mut temp_scores = HashMap::new();
                 for i_idx in 0..n {
-                    let item_i = self.data.get_item_from_index(i_idx)
-                        .ok_or_else(|| AsapError::InternalError("Invalid item index in suggest_comparisons".to_string()))?;
+                    let item_i = self.data.get_item_from_index(i_idx).ok_or_else(|| {
+                        AsapError::InternalError(
+                            "Invalid item index in suggest_comparisons".to_string(),
+                        )
+                    })?;
                     let mut wins = 0;
                     let mut total_comps = 0;
                     for j_idx in 0..n {
-                        if i_idx == j_idx { continue; }
-                        let item_j = self.data.get_item_from_index(j_idx)
-                            .ok_or_else(|| AsapError::InternalError("Invalid item index in suggest_comparisons".to_string()))?;
+                        if i_idx == j_idx {
+                            continue;
+                        }
+                        let item_j = self.data.get_item_from_index(j_idx).ok_or_else(|| {
+                            AsapError::InternalError(
+                                "Invalid item index in suggest_comparisons".to_string(),
+                            )
+                        })?;
                         wins += self.data.get_win_count(&item_i, &item_j)?;
                         total_comps += self.data.get_comparison_count(&item_i, &item_j)?;
                     }
-                    temp_scores.insert(item_i.clone(), if total_comps > 0 { wins as f64 / total_comps as f64 } else { 0.5 });
+                    temp_scores.insert(
+                        item_i.clone(),
+                        if total_comps > 0 {
+                            wins as f64 / total_comps as f64
+                        } else {
+                            0.5
+                        },
+                    );
                 }
                 temp_scores
             }
         };
-
 
         for i in 0..n {
             for j in (i + 1)..n {
@@ -307,11 +323,14 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
 
         let current_scores = match self.scores {
             Some(ref s) => s.clone(),
-             None => {
+            None => {
                 // If scores are not computed, confidence might be based purely on comparison count
                 let max_comparisons_possible = (n * (n - 1)) / 2;
-                if max_comparisons_possible == 0 { return Ok(0.0); } // Avoid division by zero if n=0 or n=1 (already handled)
-                let confidence_from_count = (self.data.total_comparisons() as f64) / (max_comparisons_possible as f64);
+                if max_comparisons_possible == 0 {
+                    return Ok(0.0);
+                } // Avoid division by zero if n=0 or n=1 (already handled)
+                let confidence_from_count =
+                    (self.data.total_comparisons() as f64) / (max_comparisons_possible as f64);
                 // Sigmoid scaling for confidence
                 return Ok(1.0 / (1.0 + (-5.0 * (confidence_from_count - 0.5)).exp()));
             }
@@ -412,14 +431,17 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
 
                     let normal = Normal::new(0.0, 1.0).unwrap(); // Should handle potential error
                     let cdf_val = normal.cdf(mean_diff / v);
-                    if cdf_val == 0.0 { continue; } // Avoid division by zero if cdf is 0
+                    if cdf_val == 0.0 {
+                        continue;
+                    } // Avoid division by zero if cdf is 0
                     let c = v * normal.pdf(mean_diff / v) / cdf_val;
-
 
                     mu[i] += sigma[i] * sigma[i] * c / v;
                     mu[j] -= sigma[j] * sigma[j] * c / v;
 
-                    let factor_val = sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v) / (v * v);
+                    let factor_val =
+                        sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v)
+                            / (v * v);
                     let factor: f64 = f64::max(1.0f64 - factor_val, 0.0f64); // Ensure factor is non-negative for sqrt
                     sigma[i] *= factor.sqrt();
                     sigma[j] *= factor.sqrt();
@@ -431,13 +453,17 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
 
                     let normal = Normal::new(0.0, 1.0).unwrap(); // Should handle potential error
                     let cdf_val = normal.cdf(mean_diff / v);
-                    if cdf_val == 0.0 { continue; } // Avoid division by zero
+                    if cdf_val == 0.0 {
+                        continue;
+                    } // Avoid division by zero
                     let c = v * normal.pdf(mean_diff / v) / cdf_val;
 
                     mu[j] += sigma[j] * sigma[j] * c / v;
                     mu[i] -= sigma[i] * sigma[i] * c / v;
 
-                    let factor_val = sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v) / (v * v);
+                    let factor_val =
+                        sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v)
+                            / (v * v);
                     let factor: f64 = f64::max(1.0f64 - factor_val, 0.0f64); // Ensure factor is non-negative
                     sigma[i] *= factor.sqrt();
                     sigma[j] *= factor.sqrt();
@@ -511,13 +537,21 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
 
             let normal = Normal::new(0.0, 1.0).unwrap(); // Should handle error
             let cdf_val = normal.cdf(mean_diff / v);
-            if cdf_val == 0.0 { continue; } // Avoid division by zero
+            if cdf_val == 0.0 {
+                continue;
+            } // Avoid division by zero
             let c = v * normal.pdf(mean_diff / v) / cdf_val;
 
             mu[winner_idx] += sigma[winner_idx] * sigma[winner_idx] * c / v;
             mu[loser_idx] -= sigma[loser_idx] * sigma[loser_idx] * c / v;
-            
-            let factor_val = sigma[winner_idx] * sigma[winner_idx] * sigma[loser_idx] * sigma[loser_idx] * c * (c + mean_diff / v) / (v*v);
+
+            let factor_val = sigma[winner_idx]
+                * sigma[winner_idx]
+                * sigma[loser_idx]
+                * sigma[loser_idx]
+                * c
+                * (c + mean_diff / v)
+                / (v * v);
             let factor: f64 = f64::max(1.0f64 - factor_val, 0.0f64); // Ensure non-negative
 
             sigma[winner_idx] = (sigma[winner_idx] * sigma[winner_idx] * factor + tau_sq).sqrt();
@@ -537,7 +571,19 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
 }
 
 #[cfg(feature = "serde")]
-impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned> RankingModel<T> {
+impl<
+        T: Clone
+            + Debug
+            + Eq
+            + Hash
+            + Display
+            + Send
+            + Sync
+            + 'static
+            + serde::Serialize
+            + serde::de::DeserializeOwned,
+    > RankingModel<T>
+{
     pub fn to_json(&self) -> Result<String, AsapError<T>> {
         serde_json::to_string(self)
             .map_err(|e| AsapError::SerializationError(format!("Failed to serialize: {}", e)))
@@ -572,7 +618,6 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
     //     Err(AsapError::SerializationError("Serde feature not enabled".to_string()))
     // }
 }
-
 
 #[cfg(test)]
 mod tests {
