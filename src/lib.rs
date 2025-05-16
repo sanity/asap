@@ -420,7 +420,7 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
                     mu[j] -= sigma[j] * sigma[j] * c / v;
 
                     let factor_val = sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v) / (v * v);
-                    let factor: f64 = (1.0 - factor_val).max(0.0f64); // Ensure factor is non-negative for sqrt
+                    let factor: f64 = (1.0f64 - factor_val).max(0.0f64); // Ensure factor is non-negative for sqrt
                     sigma[i] *= factor.sqrt();
                     sigma[j] *= factor.sqrt();
                 }
@@ -518,7 +518,7 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
             mu[loser_idx] -= sigma[loser_idx] * sigma[loser_idx] * c / v;
             
             let factor_val = sigma[winner_idx] * sigma[winner_idx] * sigma[loser_idx] * sigma[loser_idx] * c * (c + mean_diff / v) / (v*v);
-            let factor = (1.0 - factor_val).max(0.0f64); // Ensure non-negative
+            let factor = (1.0f64 - factor_val).max(0.0f64); // Ensure non-negative
 
             sigma[winner_idx] = (sigma[winner_idx] * sigma[winner_idx] * factor + tau_sq).sqrt();
             sigma[loser_idx] = (sigma[loser_idx] * sigma[loser_idx] * factor + tau_sq).sqrt();
