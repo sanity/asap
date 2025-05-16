@@ -378,31 +378,51 @@ fn test_add_item_and_serialization() {
         })
         .unwrap();
 
-    let scores_before = model.get_scores().unwrap();
+    let scores_before_serialization = model.get_scores().unwrap();
+    assert_eq!(model.data.item_count(), 3);
+
+    // Test removing an item before serialization
+    model.remove_item(&"B".to_string()).unwrap();
+    assert_eq!(model.data.item_count(), 2);
+    assert!(model.scores.is_none()); // Scores are cleared after removal
+
+    let scores_after_removal_before_serialization = model.get_scores().unwrap();
+    assert!(scores_after_removal_before_serialization.contains_key(&"A".to_string()));
+    assert!(scores_after_removal_before_serialization.contains_key(&"C".to_string()));
+    assert!(!scores_after_removal_before_serialization.contains_key(&"B".to_string()));
+
 
     let json = model.to_json().unwrap();
-
     let mut deserialized_model = RankingModel::<String>::from_json(&json).unwrap();
 
-    let scores_after = deserialized_model.get_scores().unwrap();
-    for (item, score) in &scores_before {
-        assert!(scores_after.contains_key(item));
-        assert!((scores_after.get(item).unwrap() - score).abs() < 1e-6);
+    assert_eq!(deserialized_model.data.item_count(), 2);
+    let scores_after_deserialization = deserialized_model.get_scores().unwrap();
+
+    for (item, score) in &scores_after_removal_before_serialization {
+        assert!(scores_after_deserialization.contains_key(item));
+        assert!((scores_after_deserialization.get(item).unwrap() - score).abs() < 1e-6);
     }
+    assert!(!scores_after_deserialization.contains_key(&"B".to_string()));
 
+
+    // Test adding and removing after deserialization
     deserialized_model.add_item("D".to_string()).unwrap();
-
+    assert_eq!(deserialized_model.data.item_count(), 3);
     deserialized_model
         .add_comparison(Comparison::<String> {
             winner: "D".to_string(),
             loser: "A".to_string(),
         })
         .unwrap();
+    
+    let scores_before_another_removal = deserialized_model.get_scores().unwrap();
+    assert!(scores_before_another_removal.contains_key(&"D".to_string()));
+    assert!(scores_before_another_removal.get(&"D".to_string()).unwrap() > scores_before_another_removal.get(&"A".to_string()).unwrap());
 
+    deserialized_model.remove_item(&"A".to_string()).unwrap();
+    assert_eq!(deserialized_model.data.item_count(), 2);
     let final_scores = deserialized_model.get_scores().unwrap();
     assert!(final_scores.contains_key(&"D".to_string()));
-
-    assert!(
-        final_scores.get(&"D".to_string()).unwrap() > final_scores.get(&"A".to_string()).unwrap()
-    );
+    assert!(final_scores.contains_key(&"C".to_string()));
+    assert!(!final_scores.contains_key(&"A".to_string()));
 }

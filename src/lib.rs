@@ -156,6 +156,50 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> ComparisonM
 
         Ok(())
     }
+
+    pub fn remove_item(&mut self, item_to_remove: &T) -> Result<(), AsapError<T>> {
+        let removed_idx = match self.item_indices.get(item_to_remove) {
+            Some(&idx) => idx,
+            None => return Err(AsapError::ItemNotFound(item_to_remove.clone())),
+        };
+
+        let n_before_removal = self.index_to_item.len();
+        let mut comps_to_remove = 0;
+
+        // Calculate comparisons involving the removed item
+        for j in 0..n_before_removal {
+            if j == removed_idx {
+                // Sum wins by the removed item over others
+                for k in 0..n_before_removal {
+                    if k != removed_idx {
+                        comps_to_remove += self.win_counts[removed_idx][k];
+                    }
+                }
+            } else {
+                // Sum wins by other items over the removed item
+                comps_to_remove += self.win_counts[j][removed_idx];
+            }
+        }
+        
+        // Remove the item from index_to_item
+        self.index_to_item.remove(removed_idx);
+
+        // Remove the corresponding row and column from win_counts
+        self.win_counts.remove(removed_idx);
+        for row in &mut self.win_counts {
+            row.remove(removed_idx);
+        }
+
+        // Rebuild item_indices
+        self.item_indices.clear();
+        for (idx, item) in self.index_to_item.iter().enumerate() {
+            self.item_indices.insert(item.clone(), idx);
+        }
+        
+        self.comparison_count -= comps_to_remove;
+
+        Ok(())
+    }
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -202,6 +246,12 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
     pub fn add_item(&mut self, item: T) -> Result<(), AsapError<T>> {
         self.data.add_item(item)?;
         self.scores = None;
+        Ok(())
+    }
+
+    pub fn remove_item(&mut self, item: &T) -> Result<(), AsapError<T>> {
+        self.data.remove_item(item)?;
+        self.scores = None; // Scores become invalid
         Ok(())
     }
 
@@ -811,5 +861,127 @@ mod tests {
             assert!(deserialized_scores.contains_key(item));
             assert!((deserialized_scores.get(item).unwrap() - score).abs() < 1e-6);
         }
+    }
+
+    #[test]
+    fn test_comparison_matrix_remove_item() {
+        let items_initial = vec!["A".to_string(), "B".to_string(), "C".to_string()];
+        let mut matrix = ComparisonMatrix::<String>::new(&items_initial);
+
+        matrix
+            .add_comparison(&Comparison {
+                winner: "A".to_string(),
+                loser: "B".to_string(),
+            })
+            .unwrap(); // A > B (1)
+        matrix
+            .add_comparison(&Comparison {
+                winner: "B".to_string(),
+                loser: "C".to_string(),
+            })
+            .unwrap(); // B > C (2)
+        matrix
+            .add_comparison(&Comparison {
+                winner: "A".to_string(),
+                loser: "C".to_string(),
+            })
+            .unwrap(); // A > C (3)
+        
+        assert_eq!(matrix.item_count(), 3);
+        assert_eq!(matrix.total_comparisons(), 3);
+
+        // Remove "B"
+        matrix.remove_item(&"B".to_string()).unwrap();
+
+        assert_eq!(matrix.item_count(), 2);
+        // Comparisons involving B (A>B, B>C) are removed. A>C remains.
+        // A>B means win_counts[A][B] = 1. B>C means win_counts[B][C] = 1.
+        // comps_to_remove for B:
+        // wins by B: win_counts[B_old_idx][C_old_idx] = 1
+        // wins over B: win_counts[A_old_idx][B_old_idx] = 1
+        // Total comps_to_remove = 1 (A>B) + 1 (B>C) = 2.
+        // So, 3 - 2 = 1 comparison should remain.
+        assert_eq!(matrix.total_comparisons(), 1); 
+
+        assert!(matrix.get_item_index(&"A".to_string()).is_ok());
+        assert!(matrix.get_item_index(&"C".to_string()).is_ok());
+        assert!(matrix.get_item_index(&"B".to_string()).is_err());
+
+        // Check remaining win count A > C
+        assert_eq!(
+            matrix
+                .get_win_count(&"A".to_string(), &"C".to_string())
+                .unwrap(),
+            1
+        );
+        
+        // Check indices are updated
+        let a_idx = matrix.get_item_index(&"A".to_string()).unwrap();
+        let c_idx = matrix.get_item_index(&"C".to_string()).unwrap();
+        assert!((a_idx == 0 && c_idx == 1) || (a_idx == 1 && c_idx == 0));
+
+
+        // Try removing a non-existent item
+        let result = matrix.remove_item(&"D".to_string());
+        assert!(matches!(result, Err(AsapError::ItemNotFound(_))));
+
+        // Remove "A"
+        matrix.remove_item(&"A".to_string()).unwrap();
+        assert_eq!(matrix.item_count(), 1);
+        assert_eq!(matrix.total_comparisons(), 0);
+        assert!(matrix.get_item_index(&"C".to_string()).is_ok());
+
+        // Remove "C" (last item)
+        matrix.remove_item(&"C".to_string()).unwrap();
+        assert_eq!(matrix.item_count(), 0);
+        assert_eq!(matrix.total_comparisons(), 0);
+    }
+
+    #[test]
+    fn test_ranking_model_remove_item() {
+        let items = vec!["A".to_string(), "B".to_string(), "C".to_string()];
+        let mut model = RankingModel::<String>::new(&items);
+
+        model
+            .add_comparison(Comparison {
+                winner: "A".to_string(),
+                loser: "B".to_string(),
+            })
+            .unwrap();
+        model
+            .add_comparison(Comparison {
+                winner: "B".to_string(),
+                loser: "C".to_string(),
+            })
+            .unwrap();
+
+        // Populate scores
+        let scores_before_removal = model.get_scores().unwrap();
+        assert!(scores_before_removal.contains_key(&"A".to_string()));
+        assert!(scores_before_removal.contains_key(&"B".to_string()));
+        assert!(scores_before_removal.contains_key(&"C".to_string()));
+        assert!(model.scores.is_some());
+
+        // Remove "B"
+        model.remove_item(&"B".to_string()).unwrap();
+
+        assert_eq!(model.data.item_count(), 2);
+        assert!(model.scores.is_none()); // Scores should be cleared
+
+        // Get scores again
+        let scores_after_removal = model.get_scores().unwrap();
+        assert!(scores_after_removal.contains_key(&"A".to_string()));
+        assert!(scores_after_removal.contains_key(&"C".to_string()));
+        assert!(!scores_after_removal.contains_key(&"B".to_string()));
+        
+        // Check ordering
+        let ordering = model.get_ordering().unwrap();
+        assert_eq!(ordering.len(), 2);
+        assert!(ordering.contains(&"A".to_string()));
+        assert!(ordering.contains(&"C".to_string()));
+
+        // Try removing a non-existent item
+        let result = model.remove_item(&"D".to_string());
+        assert!(matches!(result, Err(AsapError::ItemNotFound(_))));
     }
 }
