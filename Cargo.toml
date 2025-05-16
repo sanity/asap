@@ -1,6 +1,24 @@
 [package]
 name = "asap"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+description = "Active Sampling for Pairwise Comparisons (ASAP) algorithm implementation in Rust"
+license = "MIT"
 
 [dependencies]
+nalgebra = "0.32.3"
+rand = "0.8.5"
+rand_distr = "0.4.3"
+statrs = "0.16.0"
+thiserror = "1.0.50"
+rayon = "1.8.0"
+rand_chacha = "0.3.1"
+
+[dev-dependencies]
+criterion = "0.5.1"
+approx = "0.5.1"
+rand_chacha = "0.3.1"
+
+[[bench]]
+name = "asap_benchmark"
+harness = false
