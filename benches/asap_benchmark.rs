@@ -1,4 +1,4 @@
-use asap::{Comparison, ItemId, RankingModel};
+use asap::{Comparison, RankingModel};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
@@ -9,10 +9,10 @@ fn generate_synthetic_data(
     n_comparisons: usize,
     noise_level: f64,
     seed: u64,
-) -> (Vec<ItemId>, Vec<Comparison>, HashMap<ItemId, f64>) {
+) -> (Vec<String>, Vec<Comparison<String>>, HashMap<String, f64>) {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
-    let items: Vec<ItemId> = (0..n_items).map(|i| format!("item_{}", i)).collect();
+    let items: Vec<String> = (0..n_items).map(|i| format!("item_{}", i)).collect();
 
     let mut true_scores = HashMap::new();
     for item in &items {
@@ -44,12 +44,12 @@ fn generate_synthetic_data(
         };
 
         let comparison = if item1_wins {
-            Comparison {
+            Comparison::<String> {
                 winner: item1.clone(),
                 loser: item2.clone(),
             }
         } else {
-            Comparison {
+            Comparison::<String> {
                 winner: item2.clone(),
                 loser: item1.clone(),
             }
@@ -66,7 +66,7 @@ fn bench_accurate_algorithm(c: &mut Criterion) {
 
     c.bench_function("accurate_algorithm", |b| {
         b.iter(|| {
-            let mut model = RankingModel::new_with_options(&items, false, false);
+            let mut model = RankingModel::<String>::new_with_options(&items, false, false);
             for comparison in &comparisons {
                 model.add_comparison(comparison.clone()).unwrap();
             }
@@ -80,7 +80,7 @@ fn bench_approximate_algorithm(c: &mut Criterion) {
 
     c.bench_function("approximate_algorithm", |b| {
         b.iter(|| {
-            let mut model = RankingModel::new_with_options(&items, true, false);
+            let mut model = RankingModel::<String>::new_with_options(&items, true, false);
             for comparison in &comparisons {
                 model.add_comparison(comparison.clone()).unwrap();
             }
@@ -93,7 +93,7 @@ fn bench_suggest_comparisons(c: &mut Criterion) {
     let (items, comparisons, _) = generate_synthetic_data(20, 100, 0.1, 42);
 
     c.bench_function("suggest_comparisons", |b| {
-        let mut model = RankingModel::new(&items);
+        let mut model = RankingModel::<String>::new(&items);
         for comparison in &comparisons {
             model.add_comparison(comparison.clone()).unwrap();
         }

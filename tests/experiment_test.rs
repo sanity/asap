@@ -1,4 +1,4 @@
-use asap::{Comparison, ItemId, RankingModel};
+use asap::{Comparison, RankingModel};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use std::collections::HashMap;
@@ -9,10 +9,10 @@ fn generate_synthetic_data(
     n_comparisons: usize,
     noise_level: f64,
     seed: u64,
-) -> (Vec<ItemId>, Vec<Comparison>, HashMap<ItemId, f64>) {
+) -> (Vec<String>, Vec<Comparison<String>>, HashMap<String, f64>) {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
-    let items: Vec<ItemId> = (0..n_items).map(|i| format!("item_{}", i)).collect();
+    let items: Vec<String> = (0..n_items).map(|i| format!("item_{}", i)).collect();
 
     let mut true_scores = HashMap::new();
     for item in &items {
@@ -44,12 +44,12 @@ fn generate_synthetic_data(
         };
 
         let comparison = if item1_wins {
-            Comparison {
+            Comparison::<String> {
                 winner: item1.clone(),
                 loser: item2.clone(),
             }
         } else {
-            Comparison {
+            Comparison::<String> {
                 winner: item2.clone(),
                 loser: item1.clone(),
             }
@@ -183,7 +183,7 @@ fn run_experiment(n_items: usize, noise_level: f64, seed: u64) -> Vec<(usize, f6
     for n_comparisons in (step_size..=max_comparisons).step_by(step_size) {
         let start_time = Instant::now();
 
-        let mut model = RankingModel::new(&items);
+        let mut model = RankingModel::<String>::new(&items);
         for i in 0..n_comparisons {
             if i < all_comparisons.len() {
                 model.add_comparison(all_comparisons[i].clone()).unwrap();

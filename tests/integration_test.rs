@@ -1,4 +1,4 @@
-use asap::{Comparison, ItemId, RankingModel};
+use asap::{Comparison, RankingModel};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use std::collections::HashMap;
@@ -8,10 +8,10 @@ fn generate_synthetic_data(
     n_comparisons: usize,
     noise_level: f64,
     seed: u64,
-) -> (Vec<ItemId>, Vec<Comparison>, HashMap<ItemId, f64>) {
+) -> (Vec<String>, Vec<Comparison<String>>, HashMap<String, f64>) {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
-    let items: Vec<ItemId> = (0..n_items).map(|i| format!("item_{}", i)).collect();
+    let items: Vec<String> = (0..n_items).map(|i| format!("item_{}", i)).collect();
 
     let mut true_scores = HashMap::new();
     for item in &items {
@@ -43,12 +43,12 @@ fn generate_synthetic_data(
         };
 
         let comparison = if item1_wins {
-            Comparison {
+            Comparison::<String> {
                 winner: item1.clone(),
                 loser: item2.clone(),
             }
         } else {
-            Comparison {
+            Comparison::<String> {
                 winner: item2.clone(),
                 loser: item1.clone(),
             }
@@ -133,7 +133,7 @@ fn test_score_recovery_no_noise() {
     let (items, comparisons, true_scores) =
         generate_synthetic_data(n_items, n_comparisons, noise_level, seed);
 
-    let mut model = RankingModel::new(&items);
+    let mut model = RankingModel::<String>::new(&items);
     for comparison in comparisons {
         model.add_comparison(comparison).unwrap();
     }
@@ -176,7 +176,7 @@ fn test_score_recovery_with_noise() {
     let (items, comparisons, true_scores) =
         generate_synthetic_data(n_items, n_comparisons, noise_level, seed);
 
-    let mut model = RankingModel::new(&items);
+    let mut model = RankingModel::<String>::new(&items);
     for comparison in comparisons {
         model.add_comparison(comparison).unwrap();
     }
@@ -219,7 +219,7 @@ fn test_comparison_suggestion() {
     let (items, comparisons, _) =
         generate_synthetic_data(n_items, n_comparisons, noise_level, seed);
 
-    let mut model = RankingModel::new(&items);
+    let mut model = RankingModel::<String>::new(&items);
     for comparison in comparisons {
         model.add_comparison(comparison).unwrap();
     }
@@ -254,9 +254,9 @@ fn test_ranking_confidence() {
     let n_items = 5;
     let seed = 42;
 
-    let items: Vec<ItemId> = (0..n_items).map(|i| format!("item_{}", i)).collect();
+    let items: Vec<String> = (0..n_items).map(|i| format!("item_{}", i)).collect();
 
-    let model = RankingModel::new(&items);
+    let model = RankingModel::<String>::new(&items);
     let confidence1 = model.ranking_confidence().unwrap();
 
     assert!(
@@ -264,13 +264,13 @@ fn test_ranking_confidence() {
         "Confidence should be low with no comparisons"
     );
 
-    let mut model = RankingModel::new(&items);
+    let mut model = RankingModel::<String>::new(&items);
 
     for i in 0..3 {
         let winner = format!("item_{}", i);
         let loser = format!("item_{}", (i + 1) % n_items);
 
-        model.add_comparison(Comparison { winner, loser }).unwrap();
+        model.add_comparison(Comparison::<String> { winner, loser }).unwrap();
     }
 
     let confidence2 = model.ranking_confidence().unwrap();
@@ -286,7 +286,7 @@ fn test_ranking_confidence() {
                 let winner = format!("item_{}", i);
                 let loser = format!("item_{}", j);
 
-                let _ = model.add_comparison(Comparison { winner, loser });
+                let _ = model.add_comparison(Comparison::<String> { winner, loser });
             }
         }
     }
@@ -302,10 +302,10 @@ fn test_ranking_confidence() {
 #[test]
 fn test_add_item_and_serialization() {
     let items = vec!["A".to_string(), "B".to_string()];
-    let mut model = RankingModel::new(&items);
+    let mut model = RankingModel::<String>::new(&items);
 
     model
-        .add_comparison(Comparison {
+        .add_comparison(Comparison::<String> {
             winner: "A".to_string(),
             loser: "B".to_string(),
         })
@@ -314,13 +314,13 @@ fn test_add_item_and_serialization() {
     model.add_item("C".to_string()).unwrap();
 
     model
-        .add_comparison(Comparison {
+        .add_comparison(Comparison::<String> {
             winner: "C".to_string(),
             loser: "A".to_string(),
         })
         .unwrap();
     model
-        .add_comparison(Comparison {
+        .add_comparison(Comparison::<String> {
             winner: "C".to_string(),
             loser: "B".to_string(),
         })
@@ -330,7 +330,7 @@ fn test_add_item_and_serialization() {
 
     let json = model.to_json().unwrap();
 
-    let mut deserialized_model = RankingModel::from_json(&json).unwrap();
+    let mut deserialized_model = RankingModel::<String>::from_json(&json).unwrap();
 
     let scores_after = deserialized_model.get_scores().unwrap();
     for (item, score) in &scores_before {
@@ -341,7 +341,7 @@ fn test_add_item_and_serialization() {
     deserialized_model.add_item("D".to_string()).unwrap();
 
     deserialized_model
-        .add_comparison(Comparison {
+        .add_comparison(Comparison::<String> {
             winner: "D".to_string(),
             loser: "A".to_string(),
         })

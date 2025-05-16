@@ -23,26 +23,26 @@ fn basic_example() {
         "C".to_string(),
         "D".to_string(),
     ];
-    let mut model = RankingModel::new(&items);
+    let mut model = RankingModel::<String>::new(&items);
 
     let comparisons = vec![
-        Comparison {
+        Comparison::<String> {
             winner: "A".to_string(),
             loser: "B".to_string(),
         },
-        Comparison {
+        Comparison::<String> {
             winner: "B".to_string(),
             loser: "C".to_string(),
         },
-        Comparison {
+        Comparison::<String> {
             winner: "A".to_string(),
             loser: "C".to_string(),
         },
-        Comparison {
+        Comparison::<String> {
             winner: "C".to_string(),
             loser: "D".to_string(),
         },
-        Comparison {
+        Comparison::<String> {
             winner: "B".to_string(),
             loser: "D".to_string(),
         },
@@ -122,12 +122,12 @@ fn score_recovery_experiment() {
         };
 
         let comparison = if item1_wins {
-            Comparison {
+            Comparison::<String> {
                 winner: item1.clone(),
                 loser: item2.clone(),
             }
         } else {
-            Comparison {
+            Comparison::<String> {
                 winner: item2.clone(),
                 loser: item1.clone(),
             }
@@ -142,7 +142,7 @@ fn score_recovery_experiment() {
         noise_level * 100.0
     );
 
-    let mut model = RankingModel::new(&items);
+    let mut model = RankingModel::<String>::new(&items);
     for comparison in comparisons {
         model.add_comparison(comparison).unwrap();
     }

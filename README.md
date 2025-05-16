@@ -18,15 +18,15 @@ use asap::{RankingModel, Comparison};
 
 // Create a new model with items
 let items = vec!["A".to_string(), "B".to_string(), "C".to_string()];
-let mut model = RankingModel::new(&items);
+let mut model = RankingModel::<String>::new(&items);
 
 // Add pairwise comparisons
-model.add_comparison(Comparison {
+model.add_comparison(Comparison::<String> {
     winner: "A".to_string(),
     loser: "B".to_string(),
 }).unwrap();
 
-model.add_comparison(Comparison {
+model.add_comparison(Comparison::<String> {
     winner: "B".to_string(),
     loser: "C".to_string(),
 }).unwrap();
