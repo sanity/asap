@@ -5,10 +5,8 @@ use std::collections::HashMap;
 
 fn generate_synthetic_data(
     n_items: usize,
-    n_comparisons: usize,
-    noise_level: f64,
     seed: u64,
-) -> (Vec<String>, Vec<Comparison<String>>, HashMap<String, f64>) {
+) -> (Vec<String>, HashMap<String, f64>) {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
     let items: Vec<String> = (0..n_items).map(|i| format!("item_{}", i)).collect();
@@ -19,45 +17,7 @@ fn generate_synthetic_data(
         true_scores.insert(item.clone(), score);
     }
 
-    let mut comparisons = Vec::new();
-    for _ in 0..n_comparisons {
-        let idx1 = rng.gen_range(0..n_items);
-        let mut idx2 = rng.gen_range(0..n_items);
-        while idx2 == idx1 {
-            idx2 = rng.gen_range(0..n_items);
-        }
-
-        let item1 = &items[idx1];
-        let item2 = &items[idx2];
-
-        let score1 = true_scores.get(item1).unwrap();
-        let score2 = true_scores.get(item2).unwrap();
-
-        let prob_item1_wins = 1.0 / (1.0 + (-10.0f64 * (score1 - score2)).exp());
-        let noise = rng.gen_range(0.0..1.0) < noise_level;
-
-        let item1_wins = if noise {
-            rng.gen_range(0.0..1.0) < 0.5 // Random choice if noisy
-        } else {
-            rng.gen_range(0.0..1.0) < prob_item1_wins // Probabilistic choice based on scores
-        };
-
-        let comparison = if item1_wins {
-            Comparison::<String> {
-                winner: item1.clone(),
-                loser: item2.clone(),
-            }
-        } else {
-            Comparison::<String> {
-                winner: item2.clone(),
-                loser: item1.clone(),
-            }
-        };
-
-        comparisons.push(comparison);
-    }
-
-    (items, comparisons, true_scores)
+    (items, true_scores)
 }
 
 fn kendall_tau(a: &[f64], b: &[f64]) -> f64 {
@@ -130,11 +90,44 @@ fn test_score_recovery_no_noise() {
     let noise_level = 0.0;
     let seed = 42;
 
-    let (items, comparisons, true_scores) =
-        generate_synthetic_data(n_items, n_comparisons, noise_level, seed);
+    let (items, true_scores) =
+        generate_synthetic_data(n_items, seed);
 
     let mut model = RankingModel::<String>::new(&items);
-    for comparison in comparisons {
+    let mut rng_comparisons = ChaCha8Rng::seed_from_u64(seed); // For simulating comparison outcomes
+
+    for _ in 0..n_comparisons {
+        let suggestions = model.suggest_comparisons(1).unwrap();
+        if suggestions.is_empty() {
+            break; // No more suggestions
+        }
+        let (suggested_item1, suggested_item2) = suggestions[0].clone();
+
+        // Simulate outcome
+        let score1 = true_scores.get(&suggested_item1).unwrap();
+        let score2 = true_scores.get(&suggested_item2).unwrap();
+
+        let prob_item1_wins = 1.0 / (1.0 + (-10.0f64 * (score1 - score2)).exp());
+        // noise_level is 0.0 for this test
+        let is_noisy_comparison = rng_comparisons.gen_range(0.0..1.0) < noise_level;
+
+        let item1_actually_wins = if is_noisy_comparison {
+            rng_comparisons.gen_range(0.0..1.0) < 0.5
+        } else {
+            rng_comparisons.gen_range(0.0..1.0) < prob_item1_wins
+        };
+
+        let comparison = if item1_actually_wins {
+            Comparison::<String> {
+                winner: suggested_item1.clone(),
+                loser: suggested_item2.clone(),
+            }
+        } else {
+            Comparison::<String> {
+                winner: suggested_item2.clone(),
+                loser: suggested_item1.clone(),
+            }
+        };
         model.add_comparison(comparison).unwrap();
     }
 
@@ -173,11 +166,43 @@ fn test_score_recovery_with_noise() {
     let noise_level = 0.2;
     let seed = 42;
 
-    let (items, comparisons, true_scores) =
-        generate_synthetic_data(n_items, n_comparisons, noise_level, seed);
+    let (items, true_scores) =
+        generate_synthetic_data(n_items, seed);
 
     let mut model = RankingModel::<String>::new(&items);
-    for comparison in comparisons {
+    let mut rng_comparisons = ChaCha8Rng::seed_from_u64(seed); // For simulating comparison outcomes
+
+    for _ in 0..n_comparisons {
+        let suggestions = model.suggest_comparisons(1).unwrap();
+        if suggestions.is_empty() {
+            break; // No more suggestions
+        }
+        let (suggested_item1, suggested_item2) = suggestions[0].clone();
+
+        // Simulate outcome
+        let score1 = true_scores.get(&suggested_item1).unwrap();
+        let score2 = true_scores.get(&suggested_item2).unwrap();
+
+        let prob_item1_wins = 1.0 / (1.0 + (-10.0f64 * (score1 - score2)).exp());
+        let is_noisy_comparison = rng_comparisons.gen_range(0.0..1.0) < noise_level;
+
+        let item1_actually_wins = if is_noisy_comparison {
+            rng_comparisons.gen_range(0.0..1.0) < 0.5
+        } else {
+            rng_comparisons.gen_range(0.0..1.0) < prob_item1_wins
+        };
+
+        let comparison = if item1_actually_wins {
+            Comparison::<String> {
+                winner: suggested_item1.clone(),
+                loser: suggested_item2.clone(),
+            }
+        } else {
+            Comparison::<String> {
+                winner: suggested_item2.clone(),
+                loser: suggested_item1.clone(),
+            }
+        };
         model.add_comparison(comparison).unwrap();
     }
 
@@ -212,16 +237,47 @@ fn test_score_recovery_with_noise() {
 #[test]
 fn test_comparison_suggestion() {
     let n_items = 5;
-    let n_comparisons = 5; // Few comparisons to test suggestion
-    let noise_level = 0.0;
+    let n_initial_comparisons = 5; // Few comparisons to build an initial model
+    let noise_level = 0.0; // For simulating outcomes during model build-up
     let seed = 42;
 
-    let (items, comparisons, _) =
-        generate_synthetic_data(n_items, n_comparisons, noise_level, seed);
+    let (items, true_scores) =
+        generate_synthetic_data(n_items, seed);
 
     let mut model = RankingModel::<String>::new(&items);
-    for comparison in comparisons {
-        model.add_comparison(comparison).unwrap();
+    let mut rng_comparisons = ChaCha8Rng::seed_from_u64(seed);
+
+    for _ in 0..n_initial_comparisons {
+        let suggestions = model.suggest_comparisons(1).unwrap();
+        if suggestions.is_empty() {
+            break;
+        }
+        let (suggested_item1, suggested_item2) = suggestions[0].clone();
+
+        let score1 = true_scores.get(&suggested_item1).unwrap();
+        let score2 = true_scores.get(&suggested_item2).unwrap();
+
+        let prob_item1_wins = 1.0 / (1.0 + (-10.0f64 * (score1 - score2)).exp());
+        let is_noisy_comparison = rng_comparisons.gen_range(0.0..1.0) < noise_level;
+
+        let item1_actually_wins = if is_noisy_comparison {
+            rng_comparisons.gen_range(0.0..1.0) < 0.5
+        } else {
+            rng_comparisons.gen_range(0.0..1.0) < prob_item1_wins
+        };
+
+        let comparison_to_add = if item1_actually_wins {
+            Comparison::<String> {
+                winner: suggested_item1.clone(),
+                loser: suggested_item2.clone(),
+            }
+        } else {
+            Comparison::<String> {
+                winner: suggested_item2.clone(),
+                loser: suggested_item1.clone(),
+            }
+        };
+        model.add_comparison(comparison_to_add).unwrap();
     }
 
     let suggested = model.suggest_comparisons(10).unwrap();
