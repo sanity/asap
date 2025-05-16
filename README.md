@@ -79,6 +79,6 @@ Run the tests with:
 cargo test
 ```
 
-## License
+## Ownership
 
-MIT
+(c) Copyright 2025 Ian Clarke, All Rights Reserved
