@@ -298,3 +298,59 @@ fn test_ranking_confidence() {
         "Confidence should be high with many comparisons"
     );
 }
+
+#[test]
+fn test_add_item_and_serialization() {
+    let items = vec!["A".to_string(), "B".to_string()];
+    let mut model = RankingModel::new(&items);
+
+    model
+        .add_comparison(Comparison {
+            winner: "A".to_string(),
+            loser: "B".to_string(),
+        })
+        .unwrap();
+
+    model.add_item("C".to_string()).unwrap();
+
+    model
+        .add_comparison(Comparison {
+            winner: "C".to_string(),
+            loser: "A".to_string(),
+        })
+        .unwrap();
+    model
+        .add_comparison(Comparison {
+            winner: "C".to_string(),
+            loser: "B".to_string(),
+        })
+        .unwrap();
+
+    let scores_before = model.get_scores().unwrap();
+
+    let json = model.to_json().unwrap();
+
+    let mut deserialized_model = RankingModel::from_json(&json).unwrap();
+
+    let scores_after = deserialized_model.get_scores().unwrap();
+    for (item, score) in &scores_before {
+        assert!(scores_after.contains_key(item));
+        assert!((scores_after.get(item).unwrap() - score).abs() < 1e-6);
+    }
+
+    deserialized_model.add_item("D".to_string()).unwrap();
+
+    deserialized_model
+        .add_comparison(Comparison {
+            winner: "D".to_string(),
+            loser: "A".to_string(),
+        })
+        .unwrap();
+
+    let final_scores = deserialized_model.get_scores().unwrap();
+    assert!(final_scores.contains_key(&"D".to_string()));
+
+    assert!(
+        final_scores.get(&"D".to_string()).unwrap() > final_scores.get(&"A".to_string()).unwrap()
+    );
+}

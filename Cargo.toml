@@ -5,6 +5,10 @@ edition = "2021"
 description = "Active Sampling for Pairwise Comparisons (ASAP) algorithm implementation in Rust"
 license = "MIT"
 
+[features]
+default = ["serde"]
+serde = ["dep:serde", "dep:serde_json"]
+
 [dependencies]
 nalgebra = "0.32.3"
 rand = "0.8.5"
@@ -13,6 +17,8 @@ statrs = "0.16.0"
 thiserror = "1.0.50"
 rayon = "1.8.0"
 rand_chacha = "0.3.1"
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
 
 [dev-dependencies]
 criterion = "0.5.1"

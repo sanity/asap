@@ -21,15 +21,20 @@ impl fmt::Display for Comparison {
 pub enum AsapError {
     #[error("Item not found: {0}")]
     ItemNotFound(ItemId),
+    #[error("Item already exists: {0}")]
+    ItemAlreadyExists(ItemId),
     #[error("Invalid comparison: both items are the same")]
     InvalidComparison,
     #[error("Not enough comparisons to compute scores")]
     NotEnoughComparisons,
     #[error("Internal algorithm error: {0}")]
     InternalError(String),
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ComparisonMatrix {
     item_indices: HashMap<ItemId, usize>,
     index_to_item: Vec<ItemId>,
@@ -130,8 +135,28 @@ impl ComparisonMatrix {
     pub fn get_item_from_index(&self, index: usize) -> Option<ItemId> {
         self.index_to_item.get(index).cloned()
     }
+
+    pub fn add_item(&mut self, item: ItemId) -> Result<(), AsapError> {
+        if self.item_indices.contains_key(&item) {
+            return Err(AsapError::ItemAlreadyExists(item));
+        }
+
+        let new_idx = self.index_to_item.len();
+
+        self.item_indices.insert(item.clone(), new_idx);
+        self.index_to_item.push(item);
+
+        self.win_counts.push(vec![0; new_idx + 1]);
+
+        for row in &mut self.win_counts[0..new_idx] {
+            row.push(0);
+        }
+
+        Ok(())
+    }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RankingModel {
     pub data: ComparisonMatrix,
     pub scores: Option<HashMap<ItemId, f64>>,
@@ -161,6 +186,12 @@ impl RankingModel {
 
     pub fn add_comparison(&mut self, comparison: Comparison) -> Result<(), AsapError> {
         self.data.add_comparison(&comparison)?;
+        self.scores = None;
+        Ok(())
+    }
+
+    pub fn add_item(&mut self, item: ItemId) -> Result<(), AsapError> {
+        self.data.add_item(item)?;
         self.scores = None;
         Ok(())
     }
@@ -505,6 +536,28 @@ impl RankingModel {
 
         Ok(scores)
     }
+
+    pub fn to_json(&self) -> Result<String, AsapError> {
+        serde_json::to_string(self)
+            .map_err(|e| AsapError::SerializationError(format!("Failed to serialize: {}", e)))
+    }
+
+    pub fn from_json(json: &str) -> Result<Self, AsapError> {
+        serde_json::from_str(json)
+            .map_err(|e| AsapError::SerializationError(format!("Failed to deserialize: {}", e)))
+    }
+
+    pub fn save_to_file(&self, path: &str) -> Result<(), AsapError> {
+        let json = self.to_json()?;
+        std::fs::write(path, json)
+            .map_err(|e| AsapError::SerializationError(format!("Failed to write file: {}", e)))
+    }
+
+    pub fn load_from_file(path: &str) -> Result<Self, AsapError> {
+        let json = std::fs::read_to_string(path)
+            .map_err(|e| AsapError::SerializationError(format!("Failed to read file: {}", e)))?;
+        Self::from_json(&json)
+    }
 }
 
 #[cfg(test)]
@@ -548,6 +601,44 @@ mod tests {
     }
 
     #[test]
+    fn test_comparison_matrix_add_item() {
+        let items = vec!["A".to_string(), "B".to_string()];
+        let mut matrix = ComparisonMatrix::new(&items);
+
+        matrix.add_item("C".to_string()).unwrap();
+
+        assert_eq!(matrix.item_count(), 3);
+        assert_eq!(
+            matrix
+                .get_win_count(&"A".to_string(), &"C".to_string())
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            matrix
+                .get_win_count(&"C".to_string(), &"A".to_string())
+                .unwrap(),
+            0
+        );
+
+        let result = matrix.add_item("A".to_string());
+        assert!(result.is_err());
+
+        let comparison = Comparison {
+            winner: "C".to_string(),
+            loser: "A".to_string(),
+        };
+        matrix.add_comparison(&comparison).unwrap();
+
+        assert_eq!(
+            matrix
+                .get_win_count(&"C".to_string(), &"A".to_string())
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
     fn test_ranking_model_new() {
         let items = vec!["A".to_string(), "B".to_string(), "C".to_string()];
         let model = RankingModel::new(&items);
@@ -570,5 +661,95 @@ mod tests {
 
         assert_eq!(model.data.total_comparisons(), 1);
         assert!(model.scores.is_none());
+    }
+
+    #[test]
+    fn test_ranking_model_add_item() {
+        let items = vec!["A".to_string(), "B".to_string()];
+        let mut model = RankingModel::new(&items);
+
+        model
+            .add_comparison(Comparison {
+                winner: "A".to_string(),
+                loser: "B".to_string(),
+            })
+            .unwrap();
+        model
+            .add_comparison(Comparison {
+                winner: "A".to_string(),
+                loser: "B".to_string(),
+            })
+            .unwrap();
+
+        let scores_before = model.get_scores().unwrap();
+        assert!(scores_before.contains_key(&"A".to_string()));
+        assert!(scores_before.contains_key(&"B".to_string()));
+
+        model.add_item("C".to_string()).unwrap();
+
+        assert!(model.scores.is_none());
+
+        model
+            .add_comparison(Comparison {
+                winner: "C".to_string(),
+                loser: "A".to_string(),
+            })
+            .unwrap();
+
+        let scores_after = model.get_scores().unwrap();
+        assert!(scores_after.contains_key(&"A".to_string()));
+        assert!(scores_after.contains_key(&"B".to_string()));
+        assert!(scores_after.contains_key(&"C".to_string()));
+
+        assert!(
+            scores_after.get(&"C".to_string()).unwrap()
+                > scores_after.get(&"A".to_string()).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_serialization_deserialization() {
+        let items = vec!["A".to_string(), "B".to_string(), "C".to_string()];
+        let mut model = RankingModel::new(&items);
+
+        model
+            .add_comparison(Comparison {
+                winner: "A".to_string(),
+                loser: "B".to_string(),
+            })
+            .unwrap();
+        model
+            .add_comparison(Comparison {
+                winner: "B".to_string(),
+                loser: "C".to_string(),
+            })
+            .unwrap();
+        model
+            .add_comparison(Comparison {
+                winner: "A".to_string(),
+                loser: "C".to_string(),
+            })
+            .unwrap();
+
+        let original_scores = model.get_scores().unwrap();
+
+        let json = model.to_json().unwrap();
+
+        let mut deserialized_model = RankingModel::from_json(&json).unwrap();
+
+        assert_eq!(
+            deserialized_model.data.item_count(),
+            model.data.item_count()
+        );
+        assert_eq!(
+            deserialized_model.data.total_comparisons(),
+            model.data.total_comparisons()
+        );
+
+        let deserialized_scores = deserialized_model.get_scores().unwrap();
+        for (item, score) in &original_scores {
+            assert!(deserialized_scores.contains_key(item));
+            assert!((deserialized_scores.get(item).unwrap() - score).abs() < 1e-6);
+        }
     }
 }
