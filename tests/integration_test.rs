@@ -302,8 +302,7 @@ fn test_comparison_suggestion() {
 #[test]
 fn test_ranking_confidence() {
     let n_items = 5;
-    let seed = 42;
-
+    
     let items: Vec<String> = (0..n_items).map(|i| format!("item_{}", i)).collect();
 
     let model = RankingModel::<String>::new(&items);
