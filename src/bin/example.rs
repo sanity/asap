@@ -1,7 +1,7 @@
-use asap::{Comparison, RankingModel};
+use asap_ranking::{Comparison, RankingModel};
+use rand::SeedableRng;
 use rand::prelude::*;
 use rand::rngs::StdRng;
-use rand::SeedableRng;
 use std::collections::HashMap;
 
 fn main() {

@@ -1,4 +1,4 @@
-use asap::{Comparison, RankingModel};
+use asap_ranking::{Comparison, RankingModel};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use std::collections::HashMap;

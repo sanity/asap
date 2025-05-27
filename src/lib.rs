@@ -4,6 +4,7 @@ use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use thiserror::Error;
 
+/// Represents a pairwise comparison between two items
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Comparison<T: Display> {
     pub winner: T,
@@ -16,6 +17,7 @@ impl<T: Display> fmt::Display for Comparison<T> {
     }
 }
 
+/// Error types for ASAP operations
 #[derive(Error, Debug)]
 pub enum AsapError<T: Display + Debug> {
     #[error("Item not found: {0}")]
@@ -32,6 +34,7 @@ pub enum AsapError<T: Display + Debug> {
     SerializationError(String),
 }
 
+/// Matrix storing pairwise comparison results between items
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
@@ -180,7 +183,7 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> ComparisonM
                 comps_to_remove += self.win_counts[j][removed_idx];
             }
         }
-        
+
         // Remove the item from index_to_item
         self.index_to_item.remove(removed_idx);
 
@@ -195,13 +198,14 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> ComparisonM
         for (idx, item) in self.index_to_item.iter().enumerate() {
             self.item_indices.insert(item.clone(), idx);
         }
-        
+
         self.comparison_count -= comps_to_remove;
 
         Ok(())
     }
 }
 
+/// Main ASAP ranking model for inferring scores from pairwise comparisons
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
     feature = "serde",
@@ -219,6 +223,7 @@ pub struct RankingModel<T: Clone + Debug + Eq + Hash + Display + Send + Sync + '
 }
 
 impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingModel<T> {
+    /// Create a new RankingModel with the given items
     pub fn new(items: &[T]) -> Self {
         RankingModel {
             data: ComparisonMatrix::new(items),
@@ -228,6 +233,7 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
         }
     }
 
+    /// Create a new RankingModel with custom options
     pub fn new_with_options(items: &[T], approximate: bool, selective_eig: bool) -> Self {
         RankingModel {
             data: ComparisonMatrix::new(items),
@@ -237,6 +243,7 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
         }
     }
 
+    /// Add a pairwise comparison result
     pub fn add_comparison(&mut self, comparison: Comparison<T>) -> Result<(), AsapError<T>> {
         self.data.add_comparison(&comparison)?;
         self.scores = None;
@@ -255,6 +262,7 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
         Ok(())
     }
 
+    /// Get the items ordered by their inferred scores (highest to lowest)
     pub fn get_ordering(&mut self) -> Result<Vec<T>, AsapError<T>> {
         let scores = self.get_scores()?;
 
@@ -268,6 +276,7 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
             .collect())
     }
 
+    /// Get the inferred scores for all items
     pub fn get_scores(&mut self) -> Result<HashMap<T, f64>, AsapError<T>> {
         if let Some(ref scores) = self.scores {
             return Ok(scores.clone());
@@ -283,6 +292,7 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
         Ok(scores)
     }
 
+    /// Suggest the most informative comparisons to perform next
     pub fn suggest_comparisons(&self, max: usize) -> Result<Vec<(T, T)>, AsapError<T>> {
         if self.data.item_count() < 2 {
             return Err(AsapError::NotEnoughComparisons);
@@ -431,6 +441,7 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
         Ok(confidence)
     }
 
+    /// Check if the current ranking has sufficient confidence (threshold: 0.0 to 1.0)
     pub fn is_sufficiently_confident(&self, threshold: f64) -> Result<bool, AsapError<T>> {
         let confidence = self.ranking_confidence()?;
         Ok(confidence >= threshold)
@@ -622,17 +633,17 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
 
 #[cfg(feature = "serde")]
 impl<
-        T: Clone
-            + Debug
-            + Eq
-            + Hash
-            + Display
-            + Send
-            + Sync
-            + 'static
-            + serde::Serialize
-            + serde::de::DeserializeOwned,
-    > RankingModel<T>
+    T: Clone
+        + Debug
+        + Eq
+        + Hash
+        + Display
+        + Send
+        + Sync
+        + 'static
+        + serde::Serialize
+        + serde::de::DeserializeOwned,
+> RankingModel<T>
 {
     pub fn to_json(&self) -> Result<String, AsapError<T>> {
         serde_json::to_string(self)
@@ -886,7 +897,7 @@ mod tests {
                 loser: "C".to_string(),
             })
             .unwrap(); // A > C (3)
-        
+
         assert_eq!(matrix.item_count(), 3);
         assert_eq!(matrix.total_comparisons(), 3);
 
@@ -901,7 +912,7 @@ mod tests {
         // wins over B: win_counts[A_old_idx][B_old_idx] = 1
         // Total comps_to_remove = 1 (A>B) + 1 (B>C) = 2.
         // So, 3 - 2 = 1 comparison should remain.
-        assert_eq!(matrix.total_comparisons(), 1); 
+        assert_eq!(matrix.total_comparisons(), 1);
 
         assert!(matrix.get_item_index(&"A".to_string()).is_ok());
         assert!(matrix.get_item_index(&"C".to_string()).is_ok());
@@ -914,12 +925,11 @@ mod tests {
                 .unwrap(),
             1
         );
-        
+
         // Check indices are updated
         let a_idx = matrix.get_item_index(&"A".to_string()).unwrap();
         let c_idx = matrix.get_item_index(&"C".to_string()).unwrap();
         assert!((a_idx == 0 && c_idx == 1) || (a_idx == 1 && c_idx == 0));
-
 
         // Try removing a non-existent item
         let result = matrix.remove_item(&"D".to_string());
@@ -973,7 +983,7 @@ mod tests {
         assert!(scores_after_removal.contains_key(&"A".to_string()));
         assert!(scores_after_removal.contains_key(&"C".to_string()));
         assert!(!scores_after_removal.contains_key(&"B".to_string()));
-        
+
         // Check ordering
         let ordering = model.get_ordering().unwrap();
         assert_eq!(ordering.len(), 2);

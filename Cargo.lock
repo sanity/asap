@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "asap"
+name = "asap-ranking"
 version = "0.1.0"
 dependencies = [
  "approx",

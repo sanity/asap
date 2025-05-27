@@ -1,9 +1,14 @@
 [package]
-name = "asap"
+name = "asap-ranking"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Active Sampling for Pairwise Comparisons (ASAP) algorithm implementation in Rust"
-license = "MIT"
+license = "AGPL-3.0"
+authors = ["ASAP Contributors"]
+repository = "https://github.com/sanity/asap/"
+readme = "README.md"
+keywords = ["ranking", "comparison", "active-learning", "asap", "pairwise"]
+categories = ["algorithms", "science"]
 
 [features]
 default = ["serde"]

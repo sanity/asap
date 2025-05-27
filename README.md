@@ -14,7 +14,7 @@ Based on the paper: "Active Sampling for Pairwise Comparisons via Approximate Me
 ## Usage
 
 ```rust
-use asap::{RankingModel, Comparison};
+use asap_ranking::{RankingModel, Comparison};
 
 // Create a new model with items
 let items = vec!["A".to_string(), "B".to_string(), "C".to_string()];
@@ -81,4 +81,4 @@ cargo test
 
 ## License
 
-MIT
+AGPL-3.0

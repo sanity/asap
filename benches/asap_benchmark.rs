@@ -1,5 +1,5 @@
-use asap::{Comparison, RankingModel};
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use asap_ranking::{Comparison, RankingModel};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use std::collections::HashMap;

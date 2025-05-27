@@ -1,4 +1,4 @@
-use asap::{Comparison, RankingModel};
+use asap_ranking::{Comparison, RankingModel};
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 use std::collections::HashMap;
@@ -391,7 +391,6 @@ fn test_add_item_and_serialization() {
     assert!(scores_after_removal_before_serialization.contains_key(&"C".to_string()));
     assert!(!scores_after_removal_before_serialization.contains_key(&"B".to_string()));
 
-
     let json = model.to_json().unwrap();
     let mut deserialized_model = RankingModel::<String>::from_json(&json).unwrap();
 
@@ -404,7 +403,6 @@ fn test_add_item_and_serialization() {
     }
     assert!(!scores_after_deserialization.contains_key(&"B".to_string()));
 
-
     // Test adding and removing after deserialization
     deserialized_model.add_item("D".to_string()).unwrap();
     assert_eq!(deserialized_model.data.item_count(), 3);
@@ -414,10 +412,13 @@ fn test_add_item_and_serialization() {
             loser: "A".to_string(),
         })
         .unwrap();
-    
+
     let scores_before_another_removal = deserialized_model.get_scores().unwrap();
     assert!(scores_before_another_removal.contains_key(&"D".to_string()));
-    assert!(scores_before_another_removal.get(&"D".to_string()).unwrap() > scores_before_another_removal.get(&"A".to_string()).unwrap());
+    assert!(
+        scores_before_another_removal.get(&"D".to_string()).unwrap()
+            > scores_before_another_removal.get(&"A".to_string()).unwrap()
+    );
 
     deserialized_model.remove_item(&"A".to_string()).unwrap();
     assert_eq!(deserialized_model.data.item_count(), 2);
