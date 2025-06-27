@@ -81,4 +81,5 @@ cargo test
 
 ## License
 
-AGPL-3.0
+Released under the [GNU Affero General Public License](https://www.gnu.org/licenses/agpl-3.0.en.html) 
+(c) Copyright 2025 Ian Clarke
