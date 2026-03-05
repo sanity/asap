@@ -1,4 +1,3 @@
-use statrs::distribution::ContinuousCDF;
 use std::collections::HashMap;
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
@@ -447,10 +446,11 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
         Ok(confidence >= threshold)
     }
 
+    /// Bradley-Terry MLE via the MM (minorization-maximization) algorithm.
+    /// Iterates until convergence, producing scores that are independent of
+    /// item ordering. P(i beats j) = score_i / (score_i + score_j).
+    /// Final scores are converted to log-scale for easier interpretation.
     fn compute_accurate_scores(&self) -> Result<HashMap<T, f64>, AsapError<T>> {
-        use nalgebra::DVector;
-        use statrs::distribution::{Continuous, Normal};
-
         let n = self.data.item_count();
         let mut scores = HashMap::new();
 
@@ -458,96 +458,106 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
             return Ok(scores);
         }
 
-        let mut mu = DVector::zeros(n);
-        let mut sigma = DVector::from_element(n, 1.0);
-
-        let beta = 0.1f64; // Skill variability
-        let _tau = 0.05f64; // Dynamic factor (original paper, seems unused here in updates)
+        // Build win matrix and total-games-against matrix
+        let mut wins = vec![vec![0usize; n]; n];
+        let mut total_wins = vec![0usize; n]; // total wins for item i
+        let mut games_against = vec![vec![0usize; n]; n]; // n_ij = games between i and j
 
         for i in 0..n {
-            for j in 0..n {
-                if i == j {
-                    continue;
-                }
-
-                let item_i = self
-                    .data
-                    .get_item_from_index(i)
-                    .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
+            let item_i = self
+                .data
+                .get_item_from_index(i)
+                .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
+            for j in (i + 1)..n {
                 let item_j = self
                     .data
                     .get_item_from_index(j)
                     .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
 
-                let wins_i_over_j = self.data.get_win_count(&item_i, &item_j)?;
-                let wins_j_over_i = self.data.get_win_count(&item_j, &item_i)?;
+                let w_ij = self.data.get_win_count(&item_i, &item_j)?;
+                let w_ji = self.data.get_win_count(&item_j, &item_i)?;
 
-                if wins_i_over_j == 0 && wins_j_over_i == 0 {
-                    continue;
-                }
-
-                for _ in 0..wins_i_over_j {
-                    let v = (2.0 * beta * beta + sigma[i] * sigma[i] + sigma[j] * sigma[j]).sqrt();
-                    let mean_diff = mu[i] - mu[j];
-
-                    let normal = Normal::new(0.0, 1.0).unwrap(); // Should handle potential error
-                    let cdf_val = normal.cdf(mean_diff / v);
-                    if cdf_val == 0.0 {
-                        continue;
-                    } // Avoid division by zero if cdf is 0
-                    let c = v * normal.pdf(mean_diff / v) / cdf_val;
-
-                    mu[i] += sigma[i] * sigma[i] * c / v;
-                    mu[j] -= sigma[j] * sigma[j] * c / v;
-
-                    let factor_val =
-                        sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v)
-                            / (v * v);
-                    let factor: f64 = f64::max(1.0f64 - factor_val, 0.0f64); // Ensure factor is non-negative for sqrt
-                    sigma[i] *= factor.sqrt();
-                    sigma[j] *= factor.sqrt();
-                }
-
-                for _ in 0..wins_j_over_i {
-                    let v = (2.0 * beta * beta + sigma[i] * sigma[i] + sigma[j] * sigma[j]).sqrt();
-                    let mean_diff = mu[j] - mu[i];
-
-                    let normal = Normal::new(0.0, 1.0).unwrap(); // Should handle potential error
-                    let cdf_val = normal.cdf(mean_diff / v);
-                    if cdf_val == 0.0 {
-                        continue;
-                    } // Avoid division by zero
-                    let c = v * normal.pdf(mean_diff / v) / cdf_val;
-
-                    mu[j] += sigma[j] * sigma[j] * c / v;
-                    mu[i] -= sigma[i] * sigma[i] * c / v;
-
-                    let factor_val =
-                        sigma[i] * sigma[i] * sigma[j] * sigma[j] * c * (c + mean_diff / v)
-                            / (v * v);
-                    let factor: f64 = f64::max(1.0f64 - factor_val, 0.0f64); // Ensure factor is non-negative
-                    sigma[i] *= factor.sqrt();
-                    sigma[j] *= factor.sqrt();
-                }
+                wins[i][j] = w_ij;
+                wins[j][i] = w_ji;
+                total_wins[i] += w_ij;
+                total_wins[j] += w_ji;
+                let n_ij = w_ij + w_ji;
+                games_against[i][j] = n_ij;
+                games_against[j][i] = n_ij;
             }
         }
 
+        // Initialize all strengths to 1.0
+        let mut p = vec![1.0f64; n];
+
+        const MAX_ITER: usize = 1000;
+        const TOL: f64 = 1e-8;
+
+        for _iter in 0..MAX_ITER {
+            let mut p_new = vec![0.0f64; n];
+            let mut max_change = 0.0f64;
+
+            for i in 0..n {
+                if total_wins[i] == 0 {
+                    // Item never won — assign a small strength to avoid zero
+                    p_new[i] = TOL;
+                    continue;
+                }
+
+                // MM update: p_i = w_i / sum_j(n_ij / (p_i + p_j))
+                let mut denom = 0.0f64;
+                for j in 0..n {
+                    if i == j || games_against[i][j] == 0 {
+                        continue;
+                    }
+                    denom += games_against[i][j] as f64 / (p[i] + p[j]);
+                }
+
+                if denom > 0.0 {
+                    p_new[i] = total_wins[i] as f64 / denom;
+                } else {
+                    p_new[i] = p[i];
+                }
+            }
+
+            // Normalize so geometric mean = 1 (prevents drift)
+            let log_sum: f64 = p_new.iter().map(|x| x.max(TOL).ln()).sum();
+            let log_mean = log_sum / n as f64;
+            let scale = (-log_mean).exp();
+            for x in &mut p_new {
+                *x *= scale;
+            }
+
+            // Check convergence
+            for i in 0..n {
+                let change = ((p_new[i] - p[i]) / p[i].max(TOL)).abs();
+                if change > max_change {
+                    max_change = change;
+                }
+            }
+
+            p = p_new;
+
+            if max_change < TOL {
+                break;
+            }
+        }
+
+        // Convert to log-scale scores for consistency with the rest of the system
         for i in 0..n {
             let item = self
                 .data
                 .get_item_from_index(i)
                 .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
-            scores.insert(item.clone(), mu[i]);
+            scores.insert(item.clone(), p[i].max(TOL).ln());
         }
 
         Ok(scores)
     }
 
+    /// Approximate scoring: same Bradley-Terry MM algorithm but with fewer
+    /// iterations for speed. Still order-independent unlike the old TrueSkill approach.
     fn compute_approximate_scores(&self) -> Result<HashMap<T, f64>, AsapError<T>> {
-        use nalgebra::DVector;
-        use rand::prelude::*;
-        use statrs::distribution::{Continuous, Normal};
-
         let n = self.data.item_count();
         let mut scores = HashMap::new();
 
@@ -555,68 +565,80 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
             return Ok(scores);
         }
 
-        let mut mu = DVector::zeros(n);
-        let mut sigma = DVector::from_element(n, 1.0);
+        // Build win/games matrices (same as accurate)
+        let mut total_wins = vec![0usize; n];
+        let mut games_against = vec![vec![0usize; n]; n];
 
-        let beta = 0.1f64; // Skill variability
-        let tau_sq = 0.05f64 * 0.05f64; // Dynamic factor squared
-
-        let mut all_comparisons_indices = Vec::new();
         for i in 0..n {
-            for j in 0..n {
-                if i == j {
-                    continue;
-                }
-
-                let item_i_ref = self
-                    .data
-                    .get_item_from_index(i)
-                    .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
-                let item_j_ref = self
+            let item_i = self
+                .data
+                .get_item_from_index(i)
+                .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
+            for j in (i + 1)..n {
+                let item_j = self
                     .data
                     .get_item_from_index(j)
                     .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
 
-                let wins_i_over_j = self.data.get_win_count(&item_i_ref, &item_j_ref)?;
+                let w_ij = self.data.get_win_count(&item_i, &item_j)?;
+                let w_ji = self.data.get_win_count(&item_j, &item_i)?;
 
-                for _ in 0..wins_i_over_j {
-                    all_comparisons_indices.push((i, j)); // Store indices
-                }
+                total_wins[i] += w_ij;
+                total_wins[j] += w_ji;
+                let n_ij = w_ij + w_ji;
+                games_against[i][j] = n_ij;
+                games_against[j][i] = n_ij;
             }
         }
 
-        let mut rng = rand::thread_rng();
-        all_comparisons_indices.shuffle(&mut rng);
+        let mut p = vec![1.0f64; n];
+        const MAX_ITER: usize = 100; // Fewer iterations than accurate
+        const TOL: f64 = 1e-6;
 
-        for (winner_idx, loser_idx) in all_comparisons_indices {
-            let v = (2.0 * beta * beta
-                + sigma[winner_idx] * sigma[winner_idx]
-                + sigma[loser_idx] * sigma[loser_idx])
-                .sqrt();
+        for _iter in 0..MAX_ITER {
+            let mut p_new = vec![0.0f64; n];
+            let mut max_change = 0.0f64;
 
-            let mean_diff = mu[winner_idx] - mu[loser_idx];
+            for i in 0..n {
+                if total_wins[i] == 0 {
+                    p_new[i] = TOL;
+                    continue;
+                }
 
-            let normal = Normal::new(0.0, 1.0).unwrap(); // Should handle error
-            let cdf_val = normal.cdf(mean_diff / v);
-            if cdf_val == 0.0 {
-                continue;
-            } // Avoid division by zero
-            let c = v * normal.pdf(mean_diff / v) / cdf_val;
+                let mut denom = 0.0f64;
+                for j in 0..n {
+                    if i == j || games_against[i][j] == 0 {
+                        continue;
+                    }
+                    denom += games_against[i][j] as f64 / (p[i] + p[j]);
+                }
 
-            mu[winner_idx] += sigma[winner_idx] * sigma[winner_idx] * c / v;
-            mu[loser_idx] -= sigma[loser_idx] * sigma[loser_idx] * c / v;
+                if denom > 0.0 {
+                    p_new[i] = total_wins[i] as f64 / denom;
+                } else {
+                    p_new[i] = p[i];
+                }
+            }
 
-            let factor_val = sigma[winner_idx]
-                * sigma[winner_idx]
-                * sigma[loser_idx]
-                * sigma[loser_idx]
-                * c
-                * (c + mean_diff / v)
-                / (v * v);
-            let factor: f64 = f64::max(1.0f64 - factor_val, 0.0f64); // Ensure non-negative
+            let log_sum: f64 = p_new.iter().map(|x| x.max(TOL).ln()).sum();
+            let log_mean = log_sum / n as f64;
+            let scale = (-log_mean).exp();
+            for x in &mut p_new {
+                *x *= scale;
+            }
 
-            sigma[winner_idx] = (sigma[winner_idx] * sigma[winner_idx] * factor + tau_sq).sqrt();
-            sigma[loser_idx] = (sigma[loser_idx] * sigma[loser_idx] * factor + tau_sq).sqrt();
+            for i in 0..n {
+                let change = ((p_new[i] - p[i]) / p[i].max(TOL)).abs();
+                if change > max_change {
+                    max_change = change;
+                }
+            }
+
+            p = p_new;
+
+            if max_change < TOL {
+                break;
+            }
         }
 
         for i in 0..n {
@@ -624,7 +646,7 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
                 .data
                 .get_item_from_index(i)
                 .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
-            scores.insert(item.clone(), mu[i]);
+            scores.insert(item.clone(), p[i].max(TOL).ln());
         }
 
         Ok(scores)
