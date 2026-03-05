@@ -374,69 +374,64 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
         Ok(result)
     }
 
+    /// Confidence metric calibrated for Bradley-Terry MLE.
+    ///
+    /// Measures two things:
+    /// 1. **Coverage** (50% weight): fraction of items with >= MIN_COMPARISONS_PER_ITEM
+    ///    comparisons. BT needs ~5-10 per item, not N² total.
+    /// 2. **Discrimination** (50% weight): whether scores are spread out enough to
+    ///    distinguish items. Uses coefficient of variation of the BT strengths.
     pub fn ranking_confidence(&self) -> Result<f64, AsapError<T>> {
         let n = self.data.item_count();
         if n <= 1 {
-            return Ok(1.0); // Only one item, so we're 100% confident
+            return Ok(1.0);
         }
 
+        const MIN_COMPARISONS_PER_ITEM: usize = 5;
+
+        // Coverage: fraction of items with enough comparisons
+        let items = self.data.items();
+        let mut well_compared = 0usize;
+        for i in 0..n {
+            let item_i = self.data.get_item_from_index(i)
+                .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
+            let mut total = 0usize;
+            for j in 0..n {
+                if i == j { continue; }
+                let item_j = self.data.get_item_from_index(j)
+                    .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
+                total += self.data.get_comparison_count(&item_i, &item_j)?;
+            }
+            if total >= MIN_COMPARISONS_PER_ITEM {
+                well_compared += 1;
+            }
+        }
+        let coverage = well_compared as f64 / n as f64;
+
+        // Discrimination: do scores actually differentiate items?
         let current_scores = match self.scores {
             Some(ref s) => s.clone(),
             None => {
-                // If scores are not computed, confidence might be based purely on comparison count
-                let max_comparisons_possible = (n * (n - 1)) / 2;
-                if max_comparisons_possible == 0 {
-                    return Ok(0.0);
-                } // Avoid division by zero if n=0 or n=1 (already handled)
-                let confidence_from_count =
-                    (self.data.total_comparisons() as f64) / (max_comparisons_possible as f64);
-                // Sigmoid scaling for confidence
-                return Ok(1.0 / (1.0 + (-5.0 * (confidence_from_count - 0.5)).exp()));
+                // No scores computed yet — confidence based on coverage alone
+                return Ok(coverage * 0.5);
             }
         };
 
-        let mut score_vec = Vec::with_capacity(n);
-        let items = self.data.items();
+        let score_vec: Vec<f64> = items.iter()
+            .map(|item| *current_scores.get(item).unwrap_or(&0.0))
+            .collect();
 
-        for item in &items {
-            score_vec.push(*current_scores.get(item).unwrap_or(&0.5));
-        }
-
-        let mut sorted_scores = score_vec.clone();
-        sorted_scores.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
-
-        let mut avg_diff = 0.0;
-        let mut count = 0;
-
-        for i in 0..(sorted_scores.len() - 1) {
-            let diff = (sorted_scores[i] - sorted_scores[i + 1]).abs();
-            avg_diff += diff;
-            count += 1;
-        }
-
-        if count == 0 {
-            return Ok(0.5); // Default confidence if no differences (e.g. all scores are same)
-        }
-
-        avg_diff /= count as f64;
-
-        let mut variance = 0.0;
         let mean = score_vec.iter().sum::<f64>() / n as f64;
+        let variance = score_vec.iter()
+            .map(|s| (s - mean) * (s - mean))
+            .sum::<f64>() / n as f64;
+        let std_dev = variance.sqrt();
 
-        for score in &score_vec {
-            variance += (score - mean) * (score - mean);
-        }
+        // CV > 0.5 means good discrimination; saturates via sigmoid
+        let cv = if mean.abs() > 1e-10 { std_dev / mean.abs() } else { std_dev };
+        let discrimination = 1.0 / (1.0 + (-5.0 * (cv - 0.3)).exp());
 
-        variance /= n as f64;
-
-        let comparison_factor = (self.data.total_comparisons() as f64) / ((n * (n - 1)) / 2) as f64;
-        let diff_factor = avg_diff / 0.1; // Normalize by expected difference
-        let variance_factor = variance / 0.1; // Normalize by expected variance
-
-        let raw_confidence = 0.4 * comparison_factor + 0.3 * diff_factor + 0.3 * variance_factor;
-
-        let confidence = 1.0 / (1.0 + (-5.0 * (raw_confidence - 0.5)).exp());
-
+        let confidence = 0.5 * coverage + 0.5 * discrimination;
         Ok(confidence)
     }
 

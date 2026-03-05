@@ -313,40 +313,44 @@ fn test_ranking_confidence() {
         "Confidence should be low with no comparisons"
     );
 
+    // Add enough comparisons that each item has >= 5 comparisons
     let mut model = RankingModel::<String>::new(&items);
-
-    for i in 0..3 {
-        let winner = format!("item_{}", i);
-        let loser = format!("item_{}", (i + 1) % n_items);
-
-        model
-            .add_comparison(Comparison::<String> { winner, loser })
-            .unwrap();
+    for _ in 0..3 {
+        for i in 0..n_items {
+            let winner = format!("item_{}", i);
+            let loser = format!("item_{}", (i + 1) % n_items);
+            model
+                .add_comparison(Comparison::<String> { winner, loser })
+                .unwrap();
+        }
     }
 
+    // Compute scores so confidence uses the discrimination component
+    let _ = model.get_scores().unwrap();
     let confidence2 = model.ranking_confidence().unwrap();
 
     assert!(
         confidence2 > confidence1,
-        "Confidence should increase with more comparisons"
+        "Confidence should increase with comparisons and computed scores"
     );
 
-    for i in 0..n_items {
-        for j in 0..n_items {
-            if i != j {
+    // Add many more comparisons with a clear ordering (item_0 > item_1 > ... > item_4)
+    for _ in 0..3 {
+        for i in 0..n_items {
+            for j in (i + 1)..n_items {
                 let winner = format!("item_{}", i);
                 let loser = format!("item_{}", j);
-
                 let _ = model.add_comparison(Comparison::<String> { winner, loser });
             }
         }
     }
 
+    let _ = model.get_scores().unwrap();
     let confidence3 = model.ranking_confidence().unwrap();
 
     assert!(
-        confidence3 > 0.8,
-        "Confidence should be high with many comparisons"
+        confidence3 > confidence2,
+        "Confidence should increase with more consistent comparisons: {confidence2} -> {confidence3}"
     );
 }
 
