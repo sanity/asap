@@ -539,12 +539,12 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
         }
 
         // Convert to log-scale scores for consistency with the rest of the system
-        for i in 0..n {
+        for (i, &pi) in p.iter().enumerate().take(n) {
             let item = self
                 .data
                 .get_item_from_index(i)
                 .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
-            scores.insert(item.clone(), p[i].max(TOL).ln());
+            scores.insert(item.clone(), pi.max(TOL).ln());
         }
 
         Ok(scores)
@@ -636,12 +636,12 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
             }
         }
 
-        for i in 0..n {
+        for (i, &pi) in p.iter().enumerate().take(n) {
             let item = self
                 .data
                 .get_item_from_index(i)
                 .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
-            scores.insert(item.clone(), p[i].max(TOL).ln());
+            scores.insert(item.clone(), pi.max(TOL).ln());
         }
 
         Ok(scores)
