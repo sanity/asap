@@ -393,12 +393,18 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
         let items = self.data.items();
         let mut well_compared = 0usize;
         for i in 0..n {
-            let item_i = self.data.get_item_from_index(i)
+            let item_i = self
+                .data
+                .get_item_from_index(i)
                 .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
             let mut total = 0usize;
             for j in 0..n {
-                if i == j { continue; }
-                let item_j = self.data.get_item_from_index(j)
+                if i == j {
+                    continue;
+                }
+                let item_j = self
+                    .data
+                    .get_item_from_index(j)
                     .ok_or_else(|| AsapError::InternalError("Invalid item index".to_string()))?;
                 total += self.data.get_comparison_count(&item_i, &item_j)?;
             }
@@ -417,18 +423,25 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
             }
         };
 
-        let score_vec: Vec<f64> = items.iter()
+        let score_vec: Vec<f64> = items
+            .iter()
             .map(|item| *current_scores.get(item).unwrap_or(&0.0))
             .collect();
 
         let mean = score_vec.iter().sum::<f64>() / n as f64;
-        let variance = score_vec.iter()
+        let variance = score_vec
+            .iter()
             .map(|s| (s - mean) * (s - mean))
-            .sum::<f64>() / n as f64;
+            .sum::<f64>()
+            / n as f64;
         let std_dev = variance.sqrt();
 
         // CV > 0.5 means good discrimination; saturates via sigmoid
-        let cv = if mean.abs() > 1e-10 { std_dev / mean.abs() } else { std_dev };
+        let cv = if mean.abs() > 1e-10 {
+            std_dev / mean.abs()
+        } else {
+            std_dev
+        };
         let discrimination = 1.0 / (1.0 + (-5.0 * (cv - 0.3)).exp());
 
         let confidence = 0.5 * coverage + 0.5 * discrimination;
