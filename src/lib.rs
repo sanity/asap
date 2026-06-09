@@ -293,6 +293,32 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
 
     /// Suggest the most informative comparisons to perform next
     pub fn suggest_comparisons(&self, max: usize) -> Result<Vec<(T, T)>, AsapError<T>> {
+        Ok(self
+            .suggest_comparisons_with_gain(max)?
+            .into_iter()
+            .map(|(a, b, _)| (a, b))
+            .collect())
+    }
+
+    /// Suggest the most informative comparisons to perform next, each paired with
+    /// its expected adjusted information gain, sorted by gain descending.
+    ///
+    /// For each unordered pair we compute `info_gain`, the binary entropy of the
+    /// Bradley-Terry win probability. This peaks at `ln(2) ≈ 0.693` for an
+    /// evenly-matched pair (win probability 0.5) and falls toward 0 as the
+    /// outcome becomes more certain. The returned `adjusted_gain` multiplies
+    /// `info_gain` by `1 / (1 + 0.1 · count)`, where `count` is how many times the
+    /// pair has already been compared, so repeatedly-compared pairs decay in
+    /// priority.
+    ///
+    /// Callers can implement an adaptive stopping rule by checking whether the
+    /// top pair's `adjusted_gain` has fallen below a threshold: once even the most
+    /// informative remaining comparison yields too little gain, further
+    /// comparisons are not worth the cost.
+    pub fn suggest_comparisons_with_gain(
+        &self,
+        max: usize,
+    ) -> Result<Vec<(T, T, f64)>, AsapError<T>> {
         if self.data.item_count() < 2 {
             return Err(AsapError::NotEnoughComparisons);
         }
@@ -368,7 +394,7 @@ impl<T: Clone + Debug + Eq + Hash + Display + Send + Sync + 'static> RankingMode
         let result = pairs_with_gain
             .into_iter()
             .take(max)
-            .map(|(_, pair)| pair)
+            .map(|(gain, (a, b))| (a, b, gain))
             .collect();
 
         Ok(result)
@@ -1023,5 +1049,106 @@ mod tests {
         // Try removing a non-existent item
         let result = model.remove_item(&"D".to_string());
         assert!(matches!(result, Err(AsapError::ItemNotFound(_))));
+    }
+
+    #[test]
+    fn test_suggest_comparisons_with_gain_fresh_model() {
+        let items = vec![
+            "A".to_string(),
+            "B".to_string(),
+            "C".to_string(),
+            "D".to_string(),
+        ];
+        let model = RankingModel::<String>::new(&items);
+
+        let suggestions = model.suggest_comparisons_with_gain(10).unwrap();
+        assert!(!suggestions.is_empty());
+
+        // With no comparisons all pairs are evenly matched and never compared, so
+        // the top pair's gain should be the binary-entropy peak ln(2).
+        let top_gain = suggestions[0].2;
+        assert!(
+            (top_gain - std::f64::consts::LN_2).abs() < 1e-6,
+            "top gain {top_gain} should be ~ln(2)"
+        );
+
+        // Results must be sorted by gain descending.
+        for window in suggestions.windows(2) {
+            assert!(
+                window[0].2 >= window[1].2,
+                "expected descending gain: {} >= {}",
+                window[0].2,
+                window[1].2
+            );
+        }
+    }
+
+    #[test]
+    fn test_suggest_comparisons_with_gain_decays_with_count() {
+        let items = vec!["A".to_string(), "B".to_string(), "C".to_string()];
+        let mut model = RankingModel::<String>::new(&items);
+
+        // Compare the A/B pair many times with a balanced outcome so its
+        // win-probability stays near 0.5 (entropy stays high) but the
+        // comparison-count decay factor pulls its adjusted gain down.
+        for i in 0..20 {
+            let (winner, loser) = if i % 2 == 0 {
+                ("A".to_string(), "B".to_string())
+            } else {
+                ("B".to_string(), "A".to_string())
+            };
+            model.add_comparison(Comparison { winner, loser }).unwrap();
+        }
+
+        let suggestions = model.suggest_comparisons_with_gain(10).unwrap();
+
+        let gain_of = |a: &str, b: &str| -> f64 {
+            suggestions
+                .iter()
+                .find(|(x, y, _)| (x == a && y == b) || (x == b && y == a))
+                .map(|(_, _, g)| *g)
+                .expect("pair should be present in suggestions")
+        };
+
+        let ab_gain = gain_of("A", "B"); // heavily compared
+        let ac_gain = gain_of("A", "C"); // never compared
+
+        assert!(
+            ab_gain < ac_gain,
+            "heavily-compared pair gain {ab_gain} should be below never-compared pair gain {ac_gain}"
+        );
+    }
+
+    #[test]
+    fn test_suggest_comparisons_matches_with_gain() {
+        let items = vec![
+            "A".to_string(),
+            "B".to_string(),
+            "C".to_string(),
+            "D".to_string(),
+        ];
+        let mut model = RankingModel::<String>::new(&items);
+        model
+            .add_comparison(Comparison {
+                winner: "A".to_string(),
+                loser: "B".to_string(),
+            })
+            .unwrap();
+        model
+            .add_comparison(Comparison {
+                winner: "C".to_string(),
+                loser: "D".to_string(),
+            })
+            .unwrap();
+
+        let with_gain = model.suggest_comparisons_with_gain(3).unwrap();
+        let without_gain = model.suggest_comparisons(3).unwrap();
+
+        let expected: Vec<(String, String)> = with_gain
+            .iter()
+            .map(|(a, b, _)| (a.clone(), b.clone()))
+            .collect();
+
+        assert_eq!(without_gain, expected);
     }
 }
